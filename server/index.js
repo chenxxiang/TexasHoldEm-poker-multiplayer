@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
+const path = require('path');
 const socketHandlers = require('./sockets/socketHandlers');
 
 const app = express();
@@ -14,6 +15,12 @@ const io = new Server(server, {
     origin: '*', // replace with frontend domain in production
     methods: ['GET', 'POST'],
   },
+});
+
+// 托管前端构建产物（前端 build 在项目根目录的 build/ 下）
+app.use(express.static(path.join(__dirname, '../build')));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../build', 'index.html'));
 });
 
 // Socket.IO connection handler
