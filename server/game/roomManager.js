@@ -68,14 +68,24 @@ class RoomManager {
 
   leaveRoom(roomId, socketId) {
     const room = this.rooms.get(roomId);
-    if (!room) return;
+    if (!room) return { hostChanged: false };
+    const wasHost = room.hostSocketId === socketId;
     room.players = room.players.filter(p => p.socketId !== socketId);
-    if (room.players.length === 0) this.rooms.delete(roomId);
+    if (room.players.length === 0) {
+      this.rooms.delete(roomId);
+      return { hostChanged: false, roomDeleted: true };
+    }
+    if (wasHost) {
+      room.hostSocketId = room.players[0].socketId;
+      return { hostChanged: true, newHostSocketId: room.players[0].socketId };
+    }
+    return { hostChanged: false };
   }
 
   startGame(roomId) {
     const room = this.rooms.get(roomId);
     if (!room || room.players.length < 2) return { error: 'NOT_ENOUGH_PLAYERS' };
+    if (room.phase !== 'waiting') return { error: 'GAME_ALREADY_STARTED' };
     const deck = shuffle(createDeck());
     const playerIds = room.players.map(p => p.socketId);
     const { hands, remainingDeck } = dealHands(deck, playerIds);
@@ -101,7 +111,7 @@ class RoomManager {
     sbPlayer.bet = room.settings.smallBlind;
     bbPlayer.chips -= room.settings.smallBlind * 2;
     bbPlayer.bet = room.settings.smallBlind * 2;
-    room.pot = room.settings.smallBlind * 3;
+    room.pot += room.settings.smallBlind * 3;
     room.currentTurnIndex = room.players.length > 2 ? 2 : 0;
     room.lastAggressorIndex = 1;
     return { success: true };

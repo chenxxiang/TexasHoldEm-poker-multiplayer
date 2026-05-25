@@ -54,4 +54,55 @@ describe('RoomManager', () => {
     const room = rm.getRoomBySocket('s2');
     expect(room.roomId).toBe(roomId);
   });
+
+  test('startGame 设置 phase 为 preflop', () => {
+    const { roomId } = rm.createRoom('s1', '房主', { initialChips: 1000, smallBlind: 10, maxRebuyAmount: 500 });
+    rm.joinRoom(roomId, 's2', '好友');
+    const result = rm.startGame(roomId);
+    expect(result.success).toBe(true);
+    expect(rm.getRoom(roomId).phase).toBe('preflop');
+  });
+
+  test('startGame 正确扣除盲注并计算底池', () => {
+    const { roomId } = rm.createRoom('s1', '房主', { initialChips: 1000, smallBlind: 10, maxRebuyAmount: 500 });
+    rm.joinRoom(roomId, 's2', '好友');
+    rm.startGame(roomId);
+    const room = rm.getRoom(roomId);
+    expect(room.players[0].chips).toBe(990);  // SB 扣 10
+    expect(room.players[1].chips).toBe(980);  // BB 扣 20
+    expect(room.pot).toBe(30);               // SB(10) + BB(20) = 30
+  });
+
+  test('startGame 给每个玩家发 2 张手牌', () => {
+    const { roomId } = rm.createRoom('s1', '房主', { initialChips: 1000, smallBlind: 10, maxRebuyAmount: 500 });
+    rm.joinRoom(roomId, 's2', '好友');
+    rm.startGame(roomId);
+    const room = rm.getRoom(roomId);
+    room.players.forEach(p => {
+      expect(p.holeCards).toHaveLength(2);
+    });
+  });
+
+  test('startGame 在游戏进行中返回 GAME_ALREADY_STARTED', () => {
+    const { roomId } = rm.createRoom('s1', '房主', { initialChips: 1000, smallBlind: 10, maxRebuyAmount: 500 });
+    rm.joinRoom(roomId, 's2', '好友');
+    rm.startGame(roomId);
+    const result = rm.startGame(roomId);
+    expect(result.error).toBe('GAME_ALREADY_STARTED');
+  });
+
+  test('startGame 玩家不足 2 人返回 NOT_ENOUGH_PLAYERS', () => {
+    const { roomId } = rm.createRoom('s1', '房主', { initialChips: 1000, smallBlind: 10, maxRebuyAmount: 500 });
+    const result = rm.startGame(roomId);
+    expect(result.error).toBe('NOT_ENOUGH_PLAYERS');
+  });
+
+  test('leaveRoom 房主离开时转让给下一个玩家', () => {
+    const { roomId } = rm.createRoom('s1', '房主', { initialChips: 1000, smallBlind: 10, maxRebuyAmount: 500 });
+    rm.joinRoom(roomId, 's2', '好友');
+    const result = rm.leaveRoom(roomId, 's1');
+    expect(result.hostChanged).toBe(true);
+    expect(result.newHostSocketId).toBe('s2');
+    expect(rm.getRoom(roomId).hostSocketId).toBe('s2');
+  });
 });
