@@ -1,221 +1,165 @@
-const axios = require('axios');
+const { createDeck, shuffle, dealHands, drawCards } = require('./deck');
 
-const rooms = {};
-
-async function createRoom(roomCode, hostId, hostName) {
-  rooms[roomCode] = {
-    players: [{
-      id: hostId,
-      name: hostName,
-      isHost: true,
-      chipBalance: 1000,
-      folded: false,
-      bet: 0,
-      hasActed: false,
-    }],
-    gameStarted: false,
-    deckId: null,
-    hands: {},
-    dealerIndex: 0,
-    pot: 0,
-    betSize: 2, // Enforce mandatory 2-chip minimum call
-    currentTurnIndex: 0,
-    waitingForInitialCalls: true,
-    loopNum: 0,
-    actedPlayerIds: new Set(),
-    communityCards: [],
-    lastAggressorIndex: null,
-  };
-}
-
-function joinRoom(roomCode, playerId, playerName) {
-  const room = rooms[roomCode];
-  if (!room) return { error: 'Room does not exist' };
-  if (room.gameStarted) return { error: 'Game already started in this room' };
-
-  const alreadyInRoom = room.players.some(p => p.id === playerId);
-  if (!alreadyInRoom) {
-    room.players.push({
-      id: playerId,
-      name: playerName,
-      isHost: false,
-      chipBalance: 1000,
-      folded: false,
-      bet: 0,
-      hasActed: false,
-    });
+class RoomManager {
+  constructor() {
+    this.rooms = new Map();
   }
 
-  return {};
-}
+  _generateRoomId() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let id = '';
+    for (let i = 0; i < 6; i++) id += chars[Math.floor(Math.random() * chars.length)];
+    return this.rooms.has(id) ? this._generateRoomId() : id;
+  }
 
-async function startGame(roomCode) {
-  const room = rooms[roomCode];
-  if (!room) return false;
+  createRoom(socketId, nickname, settings) {
+    const roomId = this._generateRoomId();
+    const room = {
+      roomId,
+      hostSocketId: socketId,
+      settings: {
+        initialChips: settings.initialChips,
+        smallBlind: settings.smallBlind,
+        maxRebuyAmount: settings.maxRebuyAmount,
+      },
+      players: [{
+        socketId,
+        nickname,
+        chips: settings.initialChips,
+        seatIndex: 0,
+        bet: 0,
+        folded: false,
+        hasActed: false,
+        hasUsedTimeBank: false,
+        holeCards: [],
+      }],
+      phase: 'waiting',
+      communityCards: [],
+      pot: 0,
+      betSize: settings.smallBlind * 2,
+      currentTurnIndex: -1,
+      lastAggressorIndex: 0,
+      loopNum: 0,
+      actedPlayerIds: new Set(),
+      deck: [],
+    };
+    this.rooms.set(roomId, room);
+    return room;
+  }
 
-  try {
-    const res = await axios.get('https://deckofcardsapi.com/api/deck/new/shuffle/?deck_count=1');
-    const deckId = res.data.deck_id;
-    room.deckId = deckId;
-
-    const count = room.players.length * 2;
-    const drawRes = await axios.get(`https://deckofcardsapi.com/api/deck/${deckId}/draw/?count=${count}`);
-    const cards = drawRes.data.cards;
-
-    room.hands = {};
-    room.players.forEach((player, index) => {
-      room.hands[player.id] = [cards[index * 2], cards[index * 2 + 1]];
-      player.bet = 0;
-      player.folded = false;
-      player.hasActed = false;
+  joinRoom(roomId, socketId, nickname) {
+    const room = this.rooms.get(roomId);
+    if (!room) return { error: 'ROOM_NOT_FOUND' };
+    if (room.players.length >= 10) return { error: 'ROOM_FULL' };
+    if (room.phase !== 'waiting') return { error: 'GAME_IN_PROGRESS' };
+    room.players.push({
+      socketId,
+      nickname,
+      chips: room.settings.initialChips,
+      seatIndex: room.players.length,
+      bet: 0,
+      folded: false,
+      hasActed: false,
+      hasUsedTimeBank: false,
+      holeCards: [],
     });
+    return { success: true, room };
+  }
 
-    room.gameStarted = true;
-    room.waitingForInitialCalls = true;
-    room.currentTurnIndex = 0;
+  leaveRoom(roomId, socketId) {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    room.players = room.players.filter(p => p.socketId !== socketId);
+    if (room.players.length === 0) this.rooms.delete(roomId);
+  }
+
+  startGame(roomId) {
+    const room = this.rooms.get(roomId);
+    if (!room || room.players.length < 2) return { error: 'NOT_ENOUGH_PLAYERS' };
+    const deck = shuffle(createDeck());
+    const playerIds = room.players.map(p => p.socketId);
+    const { hands, remainingDeck } = dealHands(deck, playerIds);
+    room.players.forEach(p => {
+      p.holeCards = hands[p.socketId];
+      p.bet = 0;
+      p.folded = false;
+      p.hasActed = false;
+    });
+    room.deck = remainingDeck;
+    room.communityCards = [];
     room.pot = 0;
-    room.betSize = 2; // Enforce minimum call
-    room.lastAggressorIndex = 0;
+    room.betSize = room.settings.smallBlind * 2;
     room.loopNum = 0;
     room.actedPlayerIds = new Set();
-    room.communityCards = [];
-
-    return true;
-  } catch (err) {
-    console.error('Failed to start game:', err.message);
-    return false;
+    room.currentTurnIndex = 0;
+    room.lastAggressorIndex = 0;
+    room.phase = 'preflop';
+    // Post blinds
+    const sbPlayer = room.players[0];
+    const bbPlayer = room.players[1] || room.players[0];
+    sbPlayer.chips -= room.settings.smallBlind;
+    sbPlayer.bet = room.settings.smallBlind;
+    bbPlayer.chips -= room.settings.smallBlind * 2;
+    bbPlayer.bet = room.settings.smallBlind * 2;
+    room.pot = room.settings.smallBlind * 3;
+    room.currentTurnIndex = room.players.length > 2 ? 2 : 0;
+    room.lastAggressorIndex = 1;
+    return { success: true };
   }
-}
 
-function getPlayerHand(roomCode, playerId) {
-  return rooms[roomCode]?.hands?.[playerId] || [];
-}
-
-function getRoomPlayers(roomCode) {
-  return rooms[roomCode]?.players || [];
-}
-
-function roomExists(roomCode) {
-  return Boolean(rooms[roomCode]);
-}
-
-function getRoom(roomCode) {
-  return rooms[roomCode];
-}
-
-function removePlayer(socketId, io) {
-  for (const roomCode in rooms) {
-    const room = rooms[roomCode];
-    const wasHost = room.players.find(p => p.id === socketId && p.isHost);
-    const wasInRoom = room.players.some(p => p.id === socketId);
-    if (!wasInRoom) continue;
-
-    room.players = room.players.filter(p => p.id !== socketId);
-    delete room.hands?.[socketId];
-
-    io.to(roomCode).emit('room_update', room.players);
-
-    if (wasHost) {
-      io.to(roomCode).emit('host_disconnected');
-      setTimeout(() => {
-        io.to(roomCode).emit('game_ended');
-        delete rooms[roomCode];
-        console.log(`🛑 Room ${roomCode} closed due to host leaving`);
-      }, 5000);
+  advanceToNextStreet(roomId) {
+    const room = this.rooms.get(roomId);
+    if (!room) return { error: 'ROOM_NOT_FOUND' };
+    room.loopNum += 1;
+    room.actedPlayerIds = new Set();
+    room.players.forEach(p => { p.bet = 0; p.hasActed = false; });
+    room.betSize = 0;
+    room.lastAggressorIndex = room.currentTurnIndex;
+    if (room.loopNum === 1) {
+      const { drawn, remainingDeck } = drawCards(room.deck, 3);
+      room.communityCards.push(...drawn);
+      room.deck = remainingDeck;
+      room.phase = 'flop';
+    } else if (room.loopNum === 2) {
+      const { drawn, remainingDeck } = drawCards(room.deck, 1);
+      room.communityCards.push(...drawn);
+      room.deck = remainingDeck;
+      room.phase = 'turn';
+    } else if (room.loopNum === 3) {
+      const { drawn, remainingDeck } = drawCards(room.deck, 1);
+      room.communityCards.push(...drawn);
+      room.deck = remainingDeck;
+      room.phase = 'river';
+    } else {
+      room.phase = 'showdown';
     }
+    return { success: true };
+  }
 
-    if (room.players.length === 0) {
-      delete rooms[roomCode];
-      console.log(`🗑️ Room ${roomCode} deleted (all players left)`);
+  rebuy(roomId, socketId, amount) {
+    const room = this.rooms.get(roomId);
+    if (!room) return { error: 'ROOM_NOT_FOUND' };
+    if (amount > room.settings.maxRebuyAmount) return { error: 'EXCEEDS_REBUY_LIMIT' };
+    const player = room.players.find(p => p.socketId === socketId);
+    if (!player) return { error: 'PLAYER_NOT_FOUND' };
+    player.chips += amount;
+    return { success: true };
+  }
+
+  getRoom(roomId) {
+    return this.rooms.get(roomId);
+  }
+
+  getRoomBySocket(socketId) {
+    for (const room of this.rooms.values()) {
+      if (room.players.find(p => p.socketId === socketId)) return room;
     }
+    return null;
+  }
 
-    break;
+  getActivePlayers(room) {
+    return room.players.filter(p => !p.folded);
   }
 }
 
-function getActivePlayers(room) {
-  return room.players.filter(p => !p.folded);
-}
-
-function haveAllActed(room) {
-  const activeIds = getActivePlayers(room).map(p => p.id);
-  return activeIds.every(id => room.actedPlayerIds.has(id));
-}
-
-async function advanceLoop(room, io, roomCode) {
-  room.loopNum += 1;
-  room.actedPlayerIds = new Set();
-
-  room.players.forEach(p => {
-    p.bet = 0;
-    p.hasActed = false;
-  });
-
-  // Keep betSize fixed at 2 for all loops (no free check rounds)
-  room.betSize = 2;
-  room.lastAggressorIndex = room.currentTurnIndex;
-
-  await revealCommunityCards(room);
-
-  io.to(roomCode).emit('new_loop', room.loopNum);
-  io.to(roomCode).emit('update_bet_size', room.betSize);
-  io.to(roomCode).emit('update_community_cards', room.communityCards);
-
-  if (room.loopNum >= 4) {
-    io.to(roomCode).emit('showdown', {
-      communityCards: room.communityCards,
-      hands: room.hands,
-      players: room.players,
-    });
-  }
-}
-
-function handlePlayerDisconnect(socketId) {
-  for (const roomCode in rooms) {
-    const room = rooms[roomCode];
-    room.players = room.players.filter(p => p.id !== socketId);
-    delete room.hands?.[socketId];
-
-    if (room.players.length === 0) {
-      delete rooms[roomCode];
-      console.log(`🫥 All players disconnected from room ${roomCode}. Game ended.`);
-    }
-  }
-}
-
-async function revealCommunityCards(room) {
-  const { loopNum, deckId } = room;
-
-  if (loopNum === 1) {
-    const flop = await drawCards(deckId, 3);
-    room.communityCards.push(...flop);
-  } else if (loopNum === 2 || loopNum === 3) {
-    const single = await drawCards(deckId, 1);
-    if (single.length) room.communityCards.push(single[0]);
-  }
-}
-
-async function drawCards(deckId, count) {
-  try {
-    const res = await axios.get(`https://deckofcardsapi.com/api/deck/${deckId}/draw/?count=${count}`);
-    return res.data.cards;
-  } catch (err) {
-    console.error(`Failed to draw ${count} cards:`, err.message);
-    return [];
-  }
-}
-
-module.exports = {
-  createRoom,
-  joinRoom,
-  startGame,
-  getPlayerHand,
-  getRoomPlayers,
-  roomExists,
-  getRoom,
-  removePlayer,
-  getActivePlayers,
-  haveAllActed,
-  advanceLoop,
-  handlePlayerDisconnect,
-};
+module.exports = RoomManager;
