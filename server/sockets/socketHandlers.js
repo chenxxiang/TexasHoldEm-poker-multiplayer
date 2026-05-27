@@ -8,10 +8,7 @@ module.exports = (io, socket) => {
 
   // ── 创建房间 ──────────────────────────────────────────────
   socket.on('createRoom', ({ nickname, settings }) => {
-    if (!nickname || !settings) {
-      socket.emit('error', { code: 'INVALID_PARAMS' });
-      return;
-    }
+    if (!nickname || !settings) { socket.emit('error', { code: 'INVALID_PARAMS' }); return; }
     const room = roomManager.createRoom(socket.id, nickname, settings);
     socket.join(room.roomId);
     socket.emit('roomCreated', { roomId: room.roomId, room: sanitizeRoom(room, socket.id) });
@@ -20,32 +17,34 @@ module.exports = (io, socket) => {
   // ── 加入房间 ──────────────────────────────────────────────
   socket.on('joinRoom', ({ roomId, nickname }) => {
     const result = roomManager.joinRoom(roomId, socket.id, nickname);
-    if (result.error) {
-      socket.emit('joinError', { code: result.error });
-      return;
-    }
+    if (result.error) { socket.emit('joinError', { code: result.error }); return; }
     socket.join(roomId);
     socket.emit('joinedRoom', { room: sanitizeRoom(result.room, socket.id) });
-    socket.to(roomId).emit('playerJoined', { room: sanitizeRoomForAll(result.room) });
+    for (const player of result.room.players) {
+      if (player.socketId !== socket.id) {
+        io.to(player.socketId).emit('playerJoined', { room: sanitizeRoom(result.room, player.socketId) });
+      }
+    }
   });
 
-  // ── 开始游戏（房主触发）──────────────────────────────────
+  // ── 主动同步房间状态 ──────────────────────────────────────
+  socket.on('getRoomState', ({ roomId }) => {
+    const room = roomManager.getRoom(roomId);
+    if (!room) return;
+    const player = room.players.find(p => p.socketId === socket.id);
+    if (!player) return;
+    socket.join(roomId);
+    socket.emit('gameStateUpdate', sanitizeRoom(room, socket.id));
+  });
+
+  // ── 开始游戏（房主触发，仅第一局需要手动）────────────────
   socket.on('startGame', ({ roomId }) => {
     const room = roomManager.getRoom(roomId);
-    if (!room || room.hostSocketId !== socket.id) {
-      socket.emit('error', { code: 'NOT_HOST' });
-      return;
-    }
+    if (!room || room.hostSocketId !== socket.id) { socket.emit('error', { code: 'NOT_HOST' }); return; }
     const result = roomManager.startGame(roomId);
-    if (result.error) {
-      socket.emit('error', { code: result.error });
-      return;
-    }
+    if (result.error) { socket.emit('error', { code: result.error }); return; }
     const updatedRoom = roomManager.getRoom(roomId);
-    // 给每个玩家发送含手牌的私密状态
-    for (const player of updatedRoom.players) {
-      io.to(player.socketId).emit('gameStarted', { room: sanitizeRoom(updatedRoom, player.socketId) });
-    }
+    broadcastToEach(io, updatedRoom, 'gameStarted');
     startNextPlayerTimer(updatedRoom);
   });
 
@@ -59,27 +58,9 @@ module.exports = (io, socket) => {
     timerManager.clearTimer(socket.id);
 
     const valid = applyAction(room, actor, action, Number(amount) || 0);
-    if (!valid) {
-      socket.emit('actionError', { code: 'INVALID_ACTION' });
-      return;
-    }
+    if (!valid) { socket.emit('actionError', { code: 'INVALID_ACTION' }); return; }
 
-    // 检查是否需要推进到下一个街
-    if (shouldAdvanceStreet(room)) {
-      const streetResult = roomManager.advanceToNextStreet(roomId);
-      if (streetResult.error) return;
-      const updatedRoom = roomManager.getRoom(roomId);
-      if (updatedRoom.phase === 'showdown') {
-        resolveShowdown(updatedRoom, io, roomId);
-        return;
-      }
-      broadcastGameState(io, updatedRoom, roomId);
-      startNextPlayerTimer(updatedRoom);
-    } else {
-      advanceTurn(room);
-      broadcastGameState(io, room, roomId);
-      startNextPlayerTimer(room);
-    }
+    processAfterAction(room, roomId);
   });
 
   // ── 延时申请 ──────────────────────────────────────────────
@@ -89,23 +70,30 @@ module.exports = (io, socket) => {
     const player = room.players.find(p => p.socketId === socket.id);
     if (!player) return;
     const result = timerManager.extendTimer(socket.id);
-    if (result.error) {
-      socket.emit('timeBankError', { code: result.error });
-      return;
-    }
+    if (result.error) { socket.emit('timeBankError', { code: result.error }); return; }
     player.hasUsedTimeBank = true;
     io.to(roomId).emit('timerExtended', { socketId: socket.id });
   });
 
   // ── 补码 ──────────────────────────────────────────────────
   socket.on('rebuy', ({ roomId, amount }) => {
-    const result = roomManager.rebuy(roomId, socket.id, Number(amount));
-    if (result.error) {
-      socket.emit('rebuyError', { code: result.error });
+    const room = roomManager.getRoom(roomId);
+    if (!room) { socket.emit('rebuyError', { code: 'ROOM_NOT_FOUND' }); return; }
+    const player = room.players.find(p => p.socketId === socket.id);
+    if (!player) { socket.emit('rebuyError', { code: 'PLAYER_NOT_FOUND' }); return; }
+    // 游戏中：只有弃牌后或筹码为0时可补码
+    if (room.phase !== 'waiting' && !player.folded && player.chips > 0) {
+      socket.emit('rebuyError', { code: 'CANNOT_REBUY_NOW' });
       return;
     }
-    const room = roomManager.getRoom(roomId);
-    io.to(roomId).emit('playerRebuyed', { room: sanitizeRoomForAll(room), socketId: socket.id });
+    const rebuyAmount = Number(amount) || room.settings.initialChips;
+    if (room.settings.maxRebuyAmount && rebuyAmount > room.settings.maxRebuyAmount) {
+      socket.emit('rebuyError', { code: 'EXCEEDS_REBUY_LIMIT' });
+      return;
+    }
+    player.chips += rebuyAmount;
+    player.rebuyCount = (player.rebuyCount || 0) + 1;
+    broadcastToEach(io, room, 'gameStateUpdate');
   });
 
   // ── 断线处理 ──────────────────────────────────────────────
@@ -117,31 +105,77 @@ module.exports = (io, socket) => {
     const player = room.players.find(p => p.socketId === socket.id);
     const nickname = player?.nickname || '玩家';
 
-    // 30 秒后才真正移除（给重连机会）
     setTimeout(() => {
       const currentRoom = roomManager.getRoom(roomId);
       if (!currentRoom) return;
       const stillThere = currentRoom.players.find(p => p.socketId === socket.id);
       if (!stillThere) return;
-
       const leaveResult = roomManager.leaveRoom(roomId, socket.id);
       io.to(roomId).emit('playerLeft', { nickname, socketId: socket.id });
-
-      if (leaveResult?.hostChanged) {
-        io.to(roomId).emit('hostChanged', { newHostSocketId: leaveResult.newHostSocketId });
-      }
+      if (leaveResult?.hostChanged) io.to(roomId).emit('hostChanged', { newHostSocketId: leaveResult.newHostSocketId });
       if (leaveResult?.roomDeleted) return;
-
       const updatedRoom = roomManager.getRoom(roomId);
-      if (updatedRoom) {
-        io.to(roomId).emit('gameStateUpdate', sanitizeRoomForAll(updatedRoom));
-      }
+      if (updatedRoom) broadcastToEach(io, updatedRoom, 'gameStateUpdate');
     }, 30000);
   });
 
   // ─────────────────────────────────────────────────────────
-  // 内部辅助函数
+  // 游戏流程核心逻辑
   // ─────────────────────────────────────────────────────────
+
+  // 玩家行动后的统一处理入口
+  function processAfterAction(room, roomId) {
+    if (!shouldAdvanceStreet(room)) {
+      advanceTurn(room);
+      broadcastToEach(io, room, 'gameStateUpdate');
+      startNextPlayerTimer(room);
+      return;
+    }
+
+    const active = room.players.filter(p => !p.folded);
+    if (active.length <= 1) {
+      resolveShowdown(room, io, room.roomId);
+      return;
+    }
+
+    // 全员 all-in 或轮次结束：清除行动索引，广播当前状态，再进入下一街
+    const canAct = active.filter(p => p.chips > 0);
+    if (canAct.length === 0) room.currentTurnIndex = -1;
+    broadcastToEach(io, room, 'gameStateUpdate');
+    advanceStreet(roomId);
+  }
+
+  // 进入下一街（或摊牌）
+  function advanceStreet(roomId) {
+    const streetResult = roomManager.advanceToNextStreet(roomId);
+    if (streetResult.error) return;
+    const updatedRoom = roomManager.getRoom(roomId);
+
+    if (updatedRoom.phase === 'showdown') {
+      resolveShowdown(updatedRoom, io, roomId);
+      return;
+    }
+
+    broadcastToEach(io, updatedRoom, 'gameStateUpdate');
+
+    // 全员 all-in：自动连续翻出剩余公共牌
+    const active = updatedRoom.players.filter(p => !p.folded);
+    const canAct = active.filter(p => p.chips > 0);
+    if (canAct.length === 0 && active.length > 1) {
+      autoRunBoard(roomId);
+    } else {
+      startNextPlayerTimer(updatedRoom);
+    }
+  }
+
+  // 全员 all-in：延迟1.5s翻下一张牌，直至showdown
+  function autoRunBoard(roomId) {
+    setTimeout(() => {
+      const r = roomManager.getRoom(roomId);
+      if (!r || r.phase === 'showdown' || r.phase === 'waiting') return;
+      advanceStreet(roomId);
+    }, 1500);
+  }
 
   function applyAction(room, actor, action, amount) {
     if (action === 'fold') {
@@ -151,7 +185,7 @@ module.exports = (io, socket) => {
       return true;
     }
     if (action === 'check') {
-      if (room.betSize - actor.bet > 0) return false; // 不能 check
+      if (room.betSize - actor.bet > 0) return false;
       actor.hasActed = true;
       room.actedPlayerIds.add(actor.socketId);
       return true;
@@ -160,6 +194,7 @@ module.exports = (io, socket) => {
       const toCall = Math.min(room.betSize - actor.bet, actor.chips);
       actor.chips -= toCall;
       actor.bet += toCall;
+      actor.totalBet = (actor.totalBet || 0) + toCall;
       room.pot += toCall;
       actor.hasActed = true;
       room.actedPlayerIds.add(actor.socketId);
@@ -174,10 +209,12 @@ module.exports = (io, socket) => {
       if (actor.chips < total) return false;
       actor.chips -= total;
       actor.bet += total;
+      actor.totalBet = (actor.totalBet || 0) + total;
       room.pot += total;
       room.betSize = amount;
       room.lastAggressorIndex = room.currentTurnIndex;
-      // 重置其他玩家的 hasActed
+      actor.raiseCount = (actor.raiseCount || 0) + 1;
+      if (actor.chips === 0) actor.status = 'allin';
       room.players.forEach(p => { if (p.socketId !== actor.socketId && !p.folded) p.hasActed = false; });
       room.actedPlayerIds = new Set([actor.socketId]);
       actor.hasActed = true;
@@ -186,6 +223,7 @@ module.exports = (io, socket) => {
     if (action === 'allin') {
       const allInAmount = actor.chips;
       actor.bet += allInAmount;
+      actor.totalBet = (actor.totalBet || 0) + allInAmount;
       room.pot += allInAmount;
       actor.chips = 0;
       actor.status = 'allin';
@@ -206,7 +244,7 @@ module.exports = (io, socket) => {
     const active = room.players.filter(p => !p.folded);
     if (active.length <= 1) return true;
     const canAct = active.filter(p => p.chips > 0);
-    if (canAct.length === 0) return true; // 所有人 all-in
+    if (canAct.length === 0) return true;
     return canAct.every(p => p.hasActed && p.bet === room.betSize);
   }
 
@@ -223,7 +261,16 @@ module.exports = (io, socket) => {
 
   function startNextPlayerTimer(room) {
     const actor = room.players[room.currentTurnIndex];
-    if (!actor || actor.folded || actor.chips === 0) return;
+    if (!actor || actor.folded || actor.chips === 0) {
+      // Safety: if everyone is all-in and we're mid-game, trigger runout
+      const active = room.players.filter(p => !p.folded);
+      const canAct = active.filter(p => p.chips > 0);
+      if (canAct.length === 0 && active.length > 1 && room.phase !== 'showdown' && room.phase !== 'waiting') {
+        autoRunBoard(room.roomId);
+      }
+      return;
+    }
+
     timerManager.startTimer(actor.socketId, room.roomId, actor.hasUsedTimeBank, (socketId, roomId) => {
       const r = roomManager.getRoom(roomId);
       if (!r) return;
@@ -232,23 +279,9 @@ module.exports = (io, socket) => {
       const autoAction = timedOutActor.chips === 0 ? 'check' : 'fold';
       applyAction(r, timedOutActor, autoAction, 0);
       io.to(roomId).emit('timedOut', { socketId, autoAction });
-      if (shouldAdvanceStreet(r)) {
-        const streetResult = roomManager.advanceToNextStreet(roomId);
-        if (!streetResult.error) {
-          const updated = roomManager.getRoom(roomId);
-          if (updated.phase === 'showdown') {
-            resolveShowdown(updated, io, roomId);
-          } else {
-            broadcastGameState(io, updated, roomId);
-            startNextPlayerTimer(updated);
-          }
-        }
-      } else {
-        advanceTurn(r);
-        broadcastGameState(io, r, roomId);
-        startNextPlayerTimer(r);
-      }
+      processAfterAction(r, roomId);
     });
+
     io.to(room.roomId).emit('timerStarted', {
       socketId: actor.socketId,
       duration: 60,
@@ -256,87 +289,153 @@ module.exports = (io, socket) => {
     });
   }
 
+  // 边池计算：按各玩家总投入分级，确保短码玩家只赢自己能匹配的部分
+  function calculateSidePots(players) {
+    const entries = players
+      .map(p => ({ player: p, amount: p.totalBet || 0, folded: p.folded }))
+      .filter(e => e.amount > 0)
+      .sort((a, b) => a.amount - b.amount);
+
+    const pots = [];
+    let prevLevel = 0;
+    let remaining = [...entries];
+    let carryover = 0;
+
+    while (remaining.length > 0) {
+      const level = remaining[0].amount;
+      const potAmount = (level - prevLevel) * remaining.length + carryover;
+      const eligible = remaining.filter(e => !e.folded).map(e => e.player);
+      carryover = 0;
+      if (eligible.length > 0) {
+        pots.push({ amount: potAmount, eligible });
+      } else {
+        carryover = potAmount; // 所有投入该级别的玩家都已弃牌，金额顺延
+      }
+      prevLevel = level;
+      remaining = remaining.filter(e => e.amount > level);
+    }
+    if (carryover > 0 && pots.length > 0) pots[pots.length - 1].amount += carryover;
+    return pots;
+  }
+
   function resolveShowdown(room, io, roomId) {
-    // 简单胜负判定：有多个活跃玩家时用 pokersolver，只有1人时直接获胜
     const active = room.players.filter(p => !p.folded);
-    let winners = [];
+    const winnings = {}; // socketId -> total won
+
     if (active.length === 1) {
-      winners = [active[0]];
+      winnings[active[0].socketId] = room.pot;
     } else {
-      // 使用 pokersolver 比较手牌
       try {
         const { Hand } = require('pokersolver');
-        const community = room.communityCards.map(c => convertCard(c.code));
-        const solved = active.map(p => ({
-          player: p,
-          hand: Hand.solve([...p.holeCards.map(c => convertCard(c.code)), ...community]),
-        }));
-        const winningHands = Hand.winners(solved.map(s => s.hand));
-        winners = solved
-          .filter(s => winningHands.includes(s.hand))
-          .map(s => s.player);
+        const community = room.communityCards.map(c => c.code);
+        const sidePots = calculateSidePots(room.players);
+
+        for (const pot of sidePots) {
+          if (pot.eligible.length === 0) continue;
+          if (pot.eligible.length === 1) {
+            const w = pot.eligible[0];
+            winnings[w.socketId] = (winnings[w.socketId] || 0) + pot.amount;
+            continue;
+          }
+          const solved = pot.eligible.map(p => ({
+            player: p,
+            hand: Hand.solve([...p.holeCards.map(c => c.code), ...community]),
+          }));
+          const winningHands = Hand.winners(solved.map(s => s.hand));
+          const potWinners = solved.filter(s => winningHands.includes(s.hand)).map(s => s.player);
+          const share = Math.floor(pot.amount / potWinners.length);
+          potWinners.forEach(w => {
+            winnings[w.socketId] = (winnings[w.socketId] || 0) + share;
+          });
+        }
       } catch (e) {
-        winners = [active[0]]; // fallback
+        winnings[active[0].socketId] = room.pot;
       }
     }
-    const winAmount = Math.floor(room.pot / winners.length);
-    winners.forEach(w => { w.chips += winAmount; w.won = winAmount; });
+
+    room.players.forEach(p => {
+      p.won = winnings[p.socketId] || 0;
+      p.chips += p.won;
+    });
     room.pot = 0;
     room.phase = 'showdown';
-    io.to(roomId).emit('showdown', {
-      room: {
-        ...room,
-        players: room.players.map(p => ({ ...p })), // 摊牌时暴露所有手牌
-      },
-      winners: winners.map(w => w.socketId),
-    });
-    // 5 秒后重置为 waiting
+
+    for (const player of room.players) {
+      io.to(player.socketId).emit('showdown', {
+        room: {
+          ...sanitizeRoom(room, player.socketId),
+          players: room.players.map(p => ({
+            ...p,
+            holeCards: !p.folded ? p.holeCards : [],
+          })),
+        },
+        winners: room.players.filter(p => p.won > 0).map(w => w.socketId),
+      });
+    }
+
     setTimeout(() => {
       const r = roomManager.getRoom(roomId);
-      if (r) {
-        r.phase = 'waiting';
-        r.players.forEach(p => { p.holeCards = []; p.won = 0; p.bet = 0; p.folded = false; p.hasActed = false; });
-        r.communityCards = [];
-        r.pot = 0;
-        io.to(roomId).emit('gameStateUpdate', sanitizeRoomForAll(r));
+      if (!r) return;
+
+      roomManager.advanceDealer(roomId);
+
+      r.players.forEach(p => {
+        if (p.chips === 0) {
+          p.chips = r.settings.initialChips;
+          p.rebuyCount = (p.rebuyCount || 0) + 1;
+        }
+        p.holeCards = [];
+        p.won = 0;
+        p.bet = 0;
+        p.totalBet = 0;
+        p.folded = false;
+        p.hasActed = false;
+        p.hasUsedTimeBank = false;
+        p.status = 'active';
+      });
+      r.communityCards = [];
+      r.pot = 0;
+      r.deck = [];
+      r.betSize = r.settings.smallBlind * 2;
+      r.loopNum = 0;
+      r.actedPlayerIds = new Set();
+      r.currentTurnIndex = -1;
+      r.phase = 'waiting';
+
+      if (r.players.length >= 2) {
+        const result = roomManager.startGame(roomId);
+        if (!result.error) {
+          const next = roomManager.getRoom(roomId);
+          broadcastToEach(io, next, 'gameStarted');
+          startNextPlayerTimer(next);
+          return;
+        }
+      }
+
+      for (const player of r.players) {
+        io.to(player.socketId).emit('gameStateUpdate', sanitizeRoom(r, player.socketId));
       }
     }, 5000);
   }
 
-  function convertCard(code) {
-    // 将 'Ah' -> 'Ah', 'Ts' -> 'Ts' (pokersolver 格式)
-    const rankMap = { 'T': 'T', 'J': 'J', 'Q': 'Q', 'K': 'K', 'A': 'A' };
-    const suitMap = { 's': 's', 'h': 'h', 'd': 'd', 'c': 'c' };
-    const rank = code.slice(0, -1);
-    const suit = code.slice(-1);
-    return (rankMap[rank] || rank) + (suitMap[suit] || suit);
-  }
+  // ── 工具函数 ──────────────────────────────────────────────
 
-  function broadcastGameState(io, room, roomId) {
-    // 每个玩家收到带自己手牌的私密状态
+  // 向所有玩家逐个发送（绕过 socket.io 房间），每人收到自己视角的房间状态
+  function broadcastToEach(io, room, event) {
     for (const player of room.players) {
-      io.to(player.socketId).emit('gameStateUpdate', sanitizeRoom(room, player.socketId));
+      io.to(player.socketId).emit(event, { room: sanitizeRoom(room, player.socketId) });
     }
   }
 
   function sanitizeRoom(room, viewerSocketId) {
     return {
       ...room,
-      actedPlayerIds: [...room.actedPlayerIds],
+      actedPlayerIds: [...(room.actedPlayerIds || [])],
       players: room.players.map(p => ({
         ...p,
-        holeCards: p.socketId === viewerSocketId ? p.holeCards : (p.holeCards?.length ? ['hidden', 'hidden'] : []),
-      })),
-    };
-  }
-
-  function sanitizeRoomForAll(room) {
-    return {
-      ...room,
-      actedPlayerIds: [...room.actedPlayerIds],
-      players: room.players.map(p => ({
-        ...p,
-        holeCards: (p.holeCards?.length ? ['hidden', 'hidden'] : []),
+        holeCards: p.socketId === viewerSocketId
+          ? p.holeCards
+          : (p.holeCards?.length ? ['hidden', 'hidden'] : []),
       })),
     };
   }

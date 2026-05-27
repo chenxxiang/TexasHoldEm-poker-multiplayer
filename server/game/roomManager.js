@@ -28,10 +28,14 @@ class RoomManager {
         chips: settings.initialChips,
         seatIndex: 0,
         bet: 0,
+        totalBet: 0,
         folded: false,
         hasActed: false,
         hasUsedTimeBank: false,
         holeCards: [],
+        status: 'active',
+        won: 0,
+        raiseCount: 0,
       }],
       phase: 'waiting',
       communityCards: [],
@@ -40,6 +44,7 @@ class RoomManager {
       currentTurnIndex: -1,
       lastAggressorIndex: 0,
       loopNum: 0,
+      dealerIndex: 0,
       actedPlayerIds: new Set(),
       deck: [],
     };
@@ -58,10 +63,14 @@ class RoomManager {
       chips: room.settings.initialChips,
       seatIndex: room.players.length,
       bet: 0,
+      totalBet: 0,
       folded: false,
       hasActed: false,
       hasUsedTimeBank: false,
       holeCards: [],
+      status: 'active',
+      won: 0,
+      raiseCount: 0,
     });
     return { success: true, room };
   }
@@ -86,45 +95,86 @@ class RoomManager {
     const room = this.rooms.get(roomId);
     if (!room || room.players.length < 2) return { error: 'NOT_ENOUGH_PLAYERS' };
     if (room.phase !== 'waiting') return { error: 'GAME_ALREADY_STARTED' };
+
+    const n = room.players.length;
+    const dealerIdx = room.dealerIndex % n;
+    // Heads-up: dealer = SB; 3+ players: SB is left of dealer
+    const sbIdx = n === 2 ? dealerIdx : (dealerIdx + 1) % n;
+    const bbIdx = n === 2 ? (dealerIdx + 1) % n : (dealerIdx + 2) % n;
+
     const deck = shuffle(createDeck());
     const playerIds = room.players.map(p => p.socketId);
     const { hands, remainingDeck } = dealHands(deck, playerIds);
+
     room.players.forEach(p => {
       p.holeCards = hands[p.socketId];
       p.bet = 0;
+      p.totalBet = 0;
       p.folded = false;
       p.hasActed = false;
+      p.hasUsedTimeBank = false;
+      p.status = 'active';
+      p.won = 0;
+      p.raiseCount = 0;
     });
+
     room.deck = remainingDeck;
     room.communityCards = [];
     room.pot = 0;
-    room.betSize = room.settings.smallBlind * 2;
     room.loopNum = 0;
     room.actedPlayerIds = new Set();
-    room.currentTurnIndex = 0;
-    room.lastAggressorIndex = 0;
     room.phase = 'preflop';
+    room.dealerIndex = dealerIdx;
+
     // Post blinds
-    const sbPlayer = room.players[0];
-    const bbPlayer = room.players[1] || room.players[0];
-    sbPlayer.chips -= room.settings.smallBlind;
-    sbPlayer.bet = room.settings.smallBlind;
-    bbPlayer.chips -= room.settings.smallBlind * 2;
-    bbPlayer.bet = room.settings.smallBlind * 2;
-    room.pot += room.settings.smallBlind * 3;
-    room.currentTurnIndex = room.players.length > 2 ? 2 : 0;
-    room.lastAggressorIndex = 1;
+    const sbPlayer = room.players[sbIdx];
+    const bbPlayer = room.players[bbIdx];
+    const sbAmount = Math.min(room.settings.smallBlind, sbPlayer.chips);
+    const bbAmount = Math.min(room.settings.smallBlind * 2, bbPlayer.chips);
+
+    sbPlayer.chips -= sbAmount;
+    sbPlayer.bet = sbAmount;
+    sbPlayer.totalBet = sbAmount;
+    bbPlayer.chips -= bbAmount;
+    bbPlayer.bet = bbAmount;
+    bbPlayer.totalBet = bbAmount;
+    room.pot = sbAmount + bbAmount;
+    room.betSize = bbAmount;
+
+    // Pre-flop: heads-up → dealer/SB acts first; 3+ players → UTG acts first
+    if (n === 2) {
+      room.currentTurnIndex = dealerIdx;
+    } else {
+      room.currentTurnIndex = (dealerIdx + 3) % n;
+    }
+    room.lastAggressorIndex = bbIdx;
+
     return { success: true };
   }
 
   advanceToNextStreet(roomId) {
     const room = this.rooms.get(roomId);
     if (!room) return { error: 'ROOM_NOT_FOUND' };
+
     room.loopNum += 1;
     room.actedPlayerIds = new Set();
     room.players.forEach(p => { p.bet = 0; p.hasActed = false; });
     room.betSize = 0;
+
+    // Post-flop: action starts from first active player after dealer (SB position)
+    const n = room.players.length;
+    const startSearch = (room.dealerIndex + 1) % n;
+    room.currentTurnIndex = -1; // default: no one acts (all-in runout)
+    for (let i = 0; i < n; i++) {
+      const idx = (startSearch + i) % n;
+      const p = room.players[idx];
+      if (!p.folded && p.chips > 0) {
+        room.currentTurnIndex = idx;
+        break;
+      }
+    }
     room.lastAggressorIndex = room.currentTurnIndex;
+
     if (room.loopNum === 1) {
       const { drawn, remainingDeck } = drawCards(room.deck, 3);
       room.communityCards.push(...drawn);
@@ -146,6 +196,12 @@ class RoomManager {
     return { success: true };
   }
 
+  advanceDealer(roomId) {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    room.dealerIndex = (room.dealerIndex + 1) % room.players.length;
+  }
+
   rebuy(roomId, socketId, amount) {
     const room = this.rooms.get(roomId);
     if (!room) return { error: 'ROOM_NOT_FOUND' };
@@ -165,10 +221,6 @@ class RoomManager {
       if (room.players.find(p => p.socketId === socketId)) return room;
     }
     return null;
-  }
-
-  getActivePlayers(room) {
-    return room.players.filter(p => !p.folded);
   }
 }
 

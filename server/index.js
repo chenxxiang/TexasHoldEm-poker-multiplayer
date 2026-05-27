@@ -19,7 +19,7 @@ const io = new Server(server, {
 
 // 托管前端构建产物（前端 build 在项目根目录的 build/ 下）
 app.use(express.static(path.join(__dirname, '../build')));
-app.get('*', (req, res) => {
+app.get('/{*splat}', (req, res) => {
   res.sendFile(path.join(__dirname, '../build', 'index.html'));
 });
 
