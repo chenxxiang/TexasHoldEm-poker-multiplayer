@@ -104,6 +104,26 @@ module.exports = (io, socket) => {
     broadcastToEach(io, room, 'gameStateUpdate');
   });
 
+  // ── 结算阶段：准备/观战 ───────────────────────────────────
+  socket.on('playerReadyStatus', ({ roomId, status }) => {
+    const room = roomManager.getRoom(roomId);
+    if (!room || room.phase !== 'settlement') return;
+    const player = room.players.find(p => p.socketId === socket.id);
+    if (!player) return;
+    player.readyStatus = status; // 'ready' or 'spectating'
+    broadcastToEach(io, room, 'gameStateUpdate');
+    checkAllReadyAndStart(roomId);
+  });
+
+  socket.on('queueForNextHand', ({ roomId }) => {
+    const room = roomManager.getRoom(roomId);
+    if (!room) return;
+    const player = room.players.find(p => p.socketId === socket.id);
+    if (!player) return;
+    player.readyStatus = 'queued';
+    broadcastToEach(io, room, 'gameStateUpdate');
+  });
+
   // ── 断线处理 ──────────────────────────────────────────────
   socket.on('disconnect', () => {
     timerManager.clearTimer(socket.id);
@@ -378,49 +398,66 @@ module.exports = (io, socket) => {
       });
     }
 
-    setTimeout(() => {
-      const r = roomManager.getRoom(roomId);
-      if (!r) return;
+    room.phase = 'settlement';
+    room.players.forEach(p => { p.readyStatus = 'pending'; });
 
-      roomManager.advanceDealer(roomId);
+    // Build per-hand results with hand names from pokersolver
+    const { Hand } = require('pokersolver');
+    const community = room.communityCards.map(c => c.code);
+    const baseResults = room.players.map(p => {
+      let handName = null;
+      if (!p.folded && active.length > 1) {
+        try {
+          handName = Hand.solve([...p.holeCards.map(c => c.code), ...community]).name;
+        } catch (e) { /* ignore */ }
+      }
+      return {
+        socketId: p.socketId,
+        nickname: p.nickname,
+        delta: p.won - (p.totalBet || 0),
+        handName,
+      };
+    });
 
-      r.players.forEach(p => {
-        if (p.chips === 0) {
-          p.chips = r.settings.initialChips;
-          p.rebuyCount = (p.rebuyCount || 0) + 1;
-        }
-        p.holeCards = [];
-        p.won = 0;
-        p.bet = 0;
-        p.totalBet = 0;
-        p.folded = false;
-        p.hasActed = false;
-        p.hasUsedTimeBank = false;
-        p.status = 'active';
+    const wasMuckWin = active.length === 1;
+    const settlementDeadline = Date.now() + 60000;
+
+    // Send each player their personalized result view
+    for (const player of room.players) {
+      const playerResults = baseResults.map(r => {
+        const p = room.players.find(x => x.socketId === r.socketId);
+        const canSeeCards = !wasMuckWin
+          || r.socketId === player.socketId
+          || (p && p.voluntaryReveal);
+        const holeCards = canSeeCards && p && !p.folded
+          ? p.holeCards
+          : p && p.folded ? [] : ['hidden', 'hidden'];
+        return { ...r, holeCards };
       });
-      r.communityCards = [];
-      r.pot = 0;
-      r.deck = [];
-      r.betSize = r.settings.smallBlind * 2;
-      r.loopNum = 0;
-      r.actedPlayerIds = new Set();
-      r.currentTurnIndex = -1;
-      r.phase = 'waiting';
+      io.to(player.socketId).emit('showdown', {
+        room: sanitizeRoom(room, player.socketId),
+        results: playerResults,
+        wasMuckWin,
+        settlementDeadline,
+      });
+    }
 
-      if (r.players.length >= 2) {
-        const result = roomManager.startGame(roomId);
-        if (!result.error) {
-          const next = roomManager.getRoom(roomId);
-          broadcastToEach(io, next, 'gameStarted');
-          startNextPlayerTimer(next);
-          return;
-        }
+    // 60-second timeout: auto-spectate pending players
+    room._settlementTimeout = setTimeout(() => {
+      const r = roomManager.getRoom(roomId);
+      if (!r || r.phase !== 'settlement') return;
+      r.players.forEach(p => {
+        if (p.readyStatus === 'pending') p.readyStatus = 'spectating';
+      });
+      const readyCount = r.players.filter(
+        p => p.readyStatus === 'ready' || p.readyStatus === 'queued'
+      ).length;
+      if (readyCount >= 2) {
+        startNextHand(roomId);
+      } else {
+        broadcastToEach(io, r, 'gameStateUpdate');
       }
-
-      for (const player of r.players) {
-        io.to(player.socketId).emit('gameStateUpdate', sanitizeRoom(r, player.socketId));
-      }
-    }, 5000);
+    }, 60000);
   }
 
   // ── 工具函数 ──────────────────────────────────────────────
@@ -443,5 +480,76 @@ module.exports = (io, socket) => {
           : (p.holeCards?.length ? ['hidden', 'hidden'] : []),
       })),
     };
+  }
+
+  function checkAllReadyAndStart(roomId) {
+    const room = roomManager.getRoom(roomId);
+    if (!room || room.phase !== 'settlement') return;
+
+    const allChosen = room.players.every(p => p.readyStatus !== 'pending');
+    if (!allChosen) return;
+
+    const readyCount = room.players.filter(
+      p => p.readyStatus === 'ready' || p.readyStatus === 'queued'
+    ).length;
+
+    if (readyCount < 2) {
+      broadcastToEach(io, room, 'gameStateUpdate');
+      return;
+    }
+
+    startNextHand(roomId);
+  }
+
+  function startNextHand(roomId) {
+    const room = roomManager.getRoom(roomId);
+    if (!room) return;
+
+    if (room._settlementTimeout) {
+      clearTimeout(room._settlementTimeout);
+      room._settlementTimeout = null;
+    }
+
+    roomManager.advanceDealer(roomId);
+
+    room.players.forEach(p => {
+      if (p.readyStatus === 'spectating') {
+        p.status = 'spectating';
+      } else {
+        p.status = 'active';
+        if (p.chips === 0) {
+          p.chips = room.settings.initialChips;
+          p.rebuyCount = (p.rebuyCount || 0) + 1;
+        }
+      }
+      p.holeCards = [];
+      p.won = 0;
+      p.bet = 0;
+      p.totalBet = 0;
+      p.folded = false;
+      p.hasActed = false;
+      p.hasUsedTimeBank = false;
+      p.raiseCount = 0;
+      p.readyStatus = 'pending';
+      p.voluntaryReveal = false;
+    });
+
+    room.communityCards = [];
+    room.pot = 0;
+    room.deck = [];
+    room.betSize = room.settings.smallBlind * 2;
+    room.loopNum = 0;
+    room.actedPlayerIds = new Set();
+    room.currentTurnIndex = -1;
+    room.phase = 'waiting';
+
+    const result = roomManager.startGame(roomId);
+    if (!result.error) {
+      const next = roomManager.getRoom(roomId);
+      broadcastToEach(io, next, 'gameStarted');
+      startNextPlayerTimer(next);
+    } else {
+      broadcastToEach(io, room, 'gameStateUpdate');
+    }
   }
 };
