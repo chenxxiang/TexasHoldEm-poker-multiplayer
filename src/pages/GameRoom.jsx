@@ -197,8 +197,9 @@ export default function GameRoom() {
       setShowRaise(false);
       setSettlementData(null);
       setSettlementDeadline(null);
-      setMyReadyStatus('pending');
       setCardReveals({});
+      const me = r.players.find(p => p.socketId === socket.id);
+      setMyReadyStatus(me?.readyStatus || 'pending');
     };
     const onPlayerJoined = ({ room: r }) => setRoom(r);
     const onShowdown = ({ room: r, results, wasMuckWin, settlementDeadline: deadline }) => {
@@ -206,7 +207,8 @@ export default function GameRoom() {
       setSettlementData({ results: results || [], wasMuckWin });
       setSettlementDeadline(deadline);
       setCardReveals({});
-      setMyReadyStatus('pending');
+      const me = r.players.find(p => p.socketId === socket.id);
+      setMyReadyStatus(me?.readyStatus || 'pending');
       const winners = (results || []).filter(x => x.delta > 0).map(x => x.nickname);
       setMessage(winners.length ? `🏆 ${winners.join('、')} 获胜！` : '');
     };

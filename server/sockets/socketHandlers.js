@@ -22,7 +22,7 @@ module.exports = (io, socket) => {
     socket.join(roomId);
 
     if (result.reconnected) {
-      socket.emit('gameStateUpdate', { room: sanitizeRoom(result.room, socket.id) });
+      socket.emit('joinedRoom', { room: sanitizeRoom(result.room, socket.id) });
       io.to(roomId).emit('playerReconnected', { nickname, socketId: socket.id });
       return;
     }
@@ -161,6 +161,13 @@ module.exports = (io, socket) => {
     }
 
     broadcastToEach(io, room, 'gameStateUpdate');
+
+    // If a player disconnects during settlement, treat them as spectating
+    // and check if remaining players are all ready to start
+    if (room.phase === 'settlement') {
+      if (player.readyStatus === 'pending') player.readyStatus = 'spectating';
+      checkAllReadyAndStart(roomId);
+    }
   });
 
   // ─────────────────────────────────────────────────────────
@@ -403,7 +410,10 @@ module.exports = (io, socket) => {
     });
     room.pot = 0;
     room.phase = 'settlement';
-    room.players.forEach(p => { p.readyStatus = 'pending'; });
+    // Spectating and disconnected players are auto-spectated; active players must choose
+    room.players.forEach(p => {
+      p.readyStatus = (p.status === 'spectating' || p.disconnected) ? 'spectating' : 'pending';
+    });
 
     // Build per-hand results with hand names from pokersolver
     const { Hand } = require('pokersolver');
