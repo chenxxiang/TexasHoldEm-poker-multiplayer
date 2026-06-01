@@ -373,7 +373,11 @@ export default function GameRoom() {
                       return <span className="text-yellow-400 text-sm animate-pulse">♠ 自动开牌中...</span>;
                     }
                     if (curPlayer && curPlayer.chips > 0) {
-                      return <span className="text-white/50 text-sm">等待 {curPlayer.nickname}...</span>;
+                      return (
+                        <span className="text-white/50 text-sm">
+                          等待 {curPlayer.nickname}... {timerInfo && countdown > 0 ? `${countdown}s` : ''}
+                        </span>
+                      );
                     }
                     return null;
                   })()}
@@ -489,22 +493,11 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
               底池: {room.pot}
             </div>
           )}
-          {timerInfo && countdown > 0 && (
-            <div className="flex items-center gap-2">
-              <div className="w-28 h-1.5 bg-black/30 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all ${countdown > 20 ? 'bg-green-400' : countdown > 10 ? 'bg-yellow-400' : 'bg-red-500'}`}
-                  style={{ width: `${(countdown / timerInfo.duration) * 100}%` }}
-                />
-              </div>
-              <span className="text-white/70 text-xs">{countdown}s</span>
-              {timerInfo.hasTimeBank && isMyTurn && (
-                <button onClick={onExtendTime}
-                  className="text-xs text-gold border border-gold/50 rounded px-1.5 hover:bg-gold/20">
-                  +时
-                </button>
-              )}
-            </div>
+          {timerInfo?.hasTimeBank && isMyTurn && countdown > 0 && (
+            <button onClick={onExtendTime}
+              className="text-xs text-gold border border-gold/50 rounded px-1.5 hover:bg-gold/20">
+              +时
+            </button>
           )}
         </div>
       </div>
@@ -513,16 +506,20 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
       {orderedPlayers.map((player, seatPos) => {
         const pos = SEAT_POS[seatPos] || { x: 50, y: 50 };
         const origIdx = (myIdx + seatPos) % n;
+        const isThisPlayersTurn = room.currentTurnIndex === origIdx;
         return (
-          <PlayerSeat
+          <AvatarTimer
             key={player.socketId}
             player={player}
             seatPos={seatPos}
             posStyle={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)' }}
-            isCurrentTurn={room.currentTurnIndex === origIdx}
+            isCurrentTurn={isThisPlayersTurn}
             isMe={player.socketId === mySocketId}
             posLabel={room.phase !== 'waiting' ? getPositionLabel(origIdx, room.dealerIndex ?? 0, n) : null}
             avatarIdx={player.seatIndex % AVATARS.length}
+            timerInfo={timerInfo}
+            countdown={isThisPlayersTurn ? countdown : 0}
+            communityCards={room.communityCards}
           />
         );
       })}
@@ -531,24 +528,65 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
   );
 }
 
-// ── 玩家座位 ─────────────────────────────────────────────────
-function PlayerSeat({ player, seatPos, posStyle, isCurrentTurn, isMe, posLabel, avatarIdx }) {
+// ── 手牌提示（Task 9 将实现） ────────────────────────────────
+function HandHint() { return null; }
+
+// ── 头像倒计时 ───────────────────────────────────────────────
+function AvatarTimer({ player, seatPos, posStyle, isCurrentTurn, isMe, posLabel, avatarIdx, timerInfo, countdown, communityCards }) {
+  const CIRCUMFERENCE = 2 * Math.PI * 20;
+  const duration = timerInfo?.duration || 20;
+  const progress = isCurrentTurn && countdown > 0 ? countdown / duration : 0;
+  const dashOffset = CIRCUMFERENCE * (1 - progress);
+  const ringColor = countdown > duration * 0.5 ? '#4ade80'
+    : countdown > duration * 0.25 ? '#facc15'
+    : '#ef4444';
+  const isLowTime = isCurrentTurn && countdown > 0 && countdown <= duration * 0.25;
+  const isGrayed = player.disconnected || player.status === 'spectating';
+
   return (
     <div className="absolute" style={posStyle}>
       <div
         className={`flex flex-col items-center gap-0.5 ${isCurrentTurn ? 'filter drop-shadow-[0_0_10px_rgba(212,175,55,0.9)]' : ''}`}
-        style={{ minWidth: 76 }}
+        style={{ minWidth: 80, opacity: isGrayed ? 0.35 : 1, filter: isGrayed ? 'grayscale(1)' : 'none' }}
       >
-        {/* 头像 */}
-        <div className="relative">
-          <div
-            className={`w-10 h-10 rounded-full flex items-center justify-center text-xl border-2 ${isCurrentTurn ? 'border-gold' : isMe ? 'border-blue-400' : 'border-white/20'} ${player.folded ? 'opacity-40' : ''}`}
-            style={{ background: isMe ? '#1e3a6e' : '#2d2d2d' }}
-          >
-            {AVATARS[avatarIdx]}
+        {/* 头像容器 + SVG 圆环 */}
+        <div className="relative" style={{ width: 48, height: 48 }}>
+          <div style={{
+            transform: isCurrentTurn ? 'scale(1.25)' : 'scale(1)',
+            transition: 'transform 0.2s ease',
+            width: '100%', height: '100%',
+          }}>
+            <div
+              className={`w-full h-full rounded-full flex items-center justify-center text-xl border-2 ${isCurrentTurn ? 'border-gold' : isMe ? 'border-blue-400' : 'border-white/20'} ${player.folded && player.status !== 'spectating' ? 'opacity-40' : ''}`}
+              style={{ background: isMe ? '#1e3a6e' : '#2d2d2d' }}
+            >
+              {AVATARS[avatarIdx]}
+            </div>
           </div>
+
+          {/* SVG 倒计时圆环 */}
+          {isCurrentTurn && timerInfo && countdown > 0 && (
+            <div className={isLowTime ? 'animate-pulse' : ''} style={{ position: 'absolute', inset: -5, width: 58, height: 58, pointerEvents: 'none' }}>
+              <svg viewBox="0 0 48 48" width="58" height="58">
+                <circle cx="24" cy="24" r="20" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="3" />
+                <circle
+                  cx="24" cy="24" r="20"
+                  fill="none"
+                  stroke={ringColor}
+                  strokeWidth="3.5"
+                  strokeDasharray={CIRCUMFERENCE}
+                  strokeDashoffset={dashOffset}
+                  strokeLinecap="round"
+                  transform="rotate(-90 24 24)"
+                  style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.5s ease' }}
+                />
+              </svg>
+            </div>
+          )}
+
+          {/* 位置标签 */}
           {posLabel && (
-            <span className={`absolute -top-1 -right-1 font-bold px-1 rounded text-black ${
+            <span className={`absolute -top-1 -right-1 font-bold px-1 rounded text-black z-10 ${
               posLabel === 'D' ? 'bg-white' : posLabel === 'SB' ? 'bg-blue-300' : posLabel === 'BB' ? 'bg-yellow-400' : 'bg-gray-300'
             }`} style={{ fontSize: 9 }}>
               {posLabel}
@@ -556,24 +594,29 @@ function PlayerSeat({ player, seatPos, posStyle, isCurrentTurn, isMe, posLabel, 
           )}
         </div>
 
-        {/* 信息 */}
-        <div className={`text-center ${player.folded ? 'opacity-40' : ''}`}>
-          <div className="text-xs font-medium leading-tight truncate" style={{ maxWidth: 76 }}>
+        {/* 名字 + 筹码信息 */}
+        <div className={`text-center ${player.folded && player.status !== 'spectating' ? 'opacity-40' : ''}`}>
+          <div className="text-xs font-medium leading-tight truncate" style={{ maxWidth: 80 }}>
             {player.nickname}{isMe ? ' (我)' : ''}
           </div>
           <div className="text-gold text-xs font-bold">{player.chips}</div>
           {player.bet > 0 && <div className="text-yellow-300 text-xs">注:{player.bet}</div>}
           {player.status === 'allin' && !player.folded && <span className="text-yellow-400 text-xs font-bold">ALL-IN</span>}
-          {player.folded && <span className="text-red-400 text-xs">弃牌</span>}
+          {player.folded && player.status !== 'spectating' && <span className="text-red-400 text-xs">弃牌</span>}
+          {player.status === 'spectating' && <span className="text-white/40 text-xs">👁 观战</span>}
+          {player.disconnected && player.status !== 'spectating' && <span className="text-white/40 text-xs">📡 断线</span>}
         </div>
 
-        {/* 手牌 */}
+        {/* 手牌 + 牌型提示（仅自己可见） */}
         {seatPos === 0 && isMe ? (
-          (player.holeCards || []).length > 0 && (
-            <div className="flex gap-1 mt-1">
-              {player.holeCards.map((card, i) => <Card key={i} card={card} size="md" />)}
-            </div>
-          )
+          <>
+            {(player.holeCards || []).length > 0 && (
+              <div className="flex gap-1 mt-1">
+                {player.holeCards.map((card, i) => <Card key={i} card={card} size="md" />)}
+              </div>
+            )}
+            <HandHint holeCards={player.holeCards || []} communityCards={communityCards || []} />
+          </>
         ) : (
           (player.holeCards || []).length > 0 && (
             <div className="flex gap-0.5 mt-0.5">
