@@ -120,9 +120,11 @@ class RoomManager {
 
   startGame(roomId) {
     const room = this.rooms.get(roomId);
+    console.log('[startGame] roomId:', roomId, 'phase:', room?.phase, 'players:', room?.players?.length);
     if (!room || room.phase !== 'waiting') return { error: 'GAME_ALREADY_STARTED' };
 
     const playingPlayers = room.players.filter(p => p.status !== 'spectating');
+    console.log('[startGame] playingPlayers:', playingPlayers.length, 'statuses:', room.players.map(p => p.status));
     if (playingPlayers.length < 2) return { error: 'NOT_ENOUGH_PLAYERS' };
 
     const n = room.players.length;

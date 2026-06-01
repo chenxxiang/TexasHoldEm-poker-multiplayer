@@ -107,10 +107,11 @@ module.exports = (io, socket) => {
   // ── 结算阶段：准备/观战 ───────────────────────────────────
   socket.on('playerReadyStatus', ({ roomId, status }) => {
     const room = roomManager.getRoom(roomId);
+    console.log('[playerReadyStatus] roomId:', roomId, 'status:', status, 'phase:', room?.phase);
     if (!room || room.phase !== 'settlement') return;
     const player = room.players.find(p => p.socketId === socket.id);
     if (!player) return;
-    player.readyStatus = status; // 'ready' or 'spectating'
+    player.readyStatus = status;
     broadcastToEach(io, room, 'gameStateUpdate');
     checkAllReadyAndStart(roomId);
   });
@@ -487,13 +488,16 @@ module.exports = (io, socket) => {
 
   function checkAllReadyAndStart(roomId) {
     const room = roomManager.getRoom(roomId);
-    if (!room || room.phase !== 'settlement') return;
+    if (!room || room.phase !== 'settlement') {
+      console.log('[checkAllReady] early exit: room missing or phase=', room?.phase);
+      return;
+    }
 
-    // Only consider connected players — disconnected players can't choose
     const connected = room.players.filter(p => !p.disconnected);
     if (connected.length === 0) return;
 
     const allChosen = connected.every(p => p.readyStatus !== 'pending');
+    console.log('[checkAllReady] connected:', connected.map(p => `${p.nickname}=${p.readyStatus}`), 'allChosen:', allChosen);
     if (!allChosen) return;
 
     const readyCount = connected.filter(
@@ -501,16 +505,22 @@ module.exports = (io, socket) => {
     ).length;
 
     if (readyCount < 2) {
+      console.log('[checkAllReady] readyCount<2:', readyCount);
       broadcastToEach(io, room, 'gameStateUpdate');
       return;
     }
 
+    console.log('[checkAllReady] calling startNextHand');
     startNextHand(roomId);
   }
 
   function startNextHand(roomId) {
     const room = roomManager.getRoom(roomId);
     if (!room) return;
+    // Guard against double-call
+    if (room._startingNextHand) return;
+    room._startingNextHand = true;
+    console.log('[startNextHand] called, phase:', room.phase);
 
     if (room._settlementTimeout) {
       clearTimeout(room._settlementTimeout);
@@ -551,8 +561,11 @@ module.exports = (io, socket) => {
     room.phase = 'waiting';
 
     const result = roomManager.startGame(roomId);
+    room._startingNextHand = false;
+    console.log('[startNextHand] startGame result:', result, 'phase now:', room.phase);
     if (!result.error) {
       const next = roomManager.getRoom(roomId);
+      console.log('[startNextHand] broadcasting gameStarted to', next.players.length, 'players, phase:', next.phase);
       broadcastToEach(io, next, 'gameStarted');
       startNextPlayerTimer(next);
     } else {
