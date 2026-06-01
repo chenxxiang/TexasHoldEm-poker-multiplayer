@@ -1,7 +1,29 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { socket } from '../context/SocketContext';
 import Card from '../components/Card';
+import { Hand } from 'pokersolver';
+
+const HAND_NAME_MAP = {
+  'Royal Flush':    '皇家同花顺',
+  'Straight Flush': '同花顺',
+  'Four of a Kind': '四条',
+  'Full House':     '葫芦',
+  'Flush':          '同花',
+  'Straight':       '顺子',
+  'Three of a Kind':'三条',
+  'Two Pair':       '两对',
+  'Pair':           '一对',
+  'High Card':      '高牌',
+};
+
+function convertCardCode(code) {
+  if (!code || code === 'hidden') return null;
+  let rank = code.slice(0, code.length - 1);
+  const suit = code.slice(-1).toLowerCase();
+  if (rank === '10' || rank === '0') rank = 'T';
+  return rank.toUpperCase() + suit;
+}
 
 const PHASE_LABELS = {
   waiting: '等待中', preflop: '翻牌前', flop: '翻牌', turn: '转牌', river: '河牌', showdown: '摊牌',
@@ -114,6 +136,11 @@ export default function GameRoom() {
   const [showRaise, setShowRaise] = useState(false);
   const [showScoreboard, setShowScoreboard] = useState(false);
   const [rebuyError, setRebuyError] = useState('');
+  const [settlementData, setSettlementData] = useState(null);
+  const [settlementDeadline, setSettlementDeadline] = useState(null);
+  const [settlementCountdown, setSettlementCountdown] = useState(0);
+  const [cardReveals, setCardReveals] = useState({});
+  const [myReadyStatus, setMyReadyStatus] = useState('pending');
 
   const roomRef = useRef(room);
   useEffect(() => { roomRef.current = room; }, [room]);
@@ -145,6 +172,17 @@ export default function GameRoom() {
   }, [timerInfo]);
 
   useEffect(() => {
+    if (!settlementDeadline) { setSettlementCountdown(0); return; }
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((settlementDeadline - Date.now()) / 1000));
+      setSettlementCountdown(remaining);
+    };
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [settlementDeadline]);
+
+  useEffect(() => {
     const onUpdate = (payload) => {
       const r = payload?.room ?? payload;
       setRoom(r); setError(''); setShowRaise(false);
@@ -154,14 +192,28 @@ export default function GameRoom() {
     };
     const onStarted = (payload) => {
       const r = payload?.room ?? payload;
-      setRoom(r); setMessage('新一局开始！'); setShowRaise(false);
+      setRoom(r);
+      setMessage('新一局开始！');
+      setShowRaise(false);
+      setSettlementData(null);
+      setSettlementDeadline(null);
+      setMyReadyStatus('pending');
+      setCardReveals({});
     };
     const onPlayerJoined = ({ room: r }) => setRoom(r);
-    const onShowdown = ({ room: r, winners }) => {
+    const onShowdown = ({ room: r, results, wasMuckWin, settlementDeadline: deadline }) => {
       setRoom(r);
-      const names = winners.map(id => r.players.find(p => p.socketId === id)?.nickname || '玩家');
-      setMessage(`🏆 ${names.join('、')} 获胜！`);
+      setSettlementData({ results: results || [], wasMuckWin });
+      setSettlementDeadline(deadline);
+      setCardReveals({});
+      setMyReadyStatus('pending');
+      const winners = (results || []).filter(x => x.delta > 0).map(x => x.nickname);
+      setMessage(winners.length ? `🏆 ${winners.join('、')} 获胜！` : '');
     };
+    const onCardRevealed = ({ socketId, holeCards }) => {
+      setCardReveals(prev => ({ ...prev, [socketId]: holeCards }));
+    };
+    const onPlayerReconnected = ({ nickname }) => setMessage(`${nickname} 重新连线了`);
     const onTimerStarted = (info) => { setTimerInfo(info); };
     const onTimerExtended = ({ socketId }) => {
       setTimerInfo(prev => prev?.socketId === socketId ? { ...prev, hasTimeBank: false } : prev);
@@ -189,6 +241,8 @@ export default function GameRoom() {
     socket.on('actionError', onActionError);
     socket.on('rebuyError', onRebuyError);
     socket.on('error', onError);
+    socket.on('cardRevealed', onCardRevealed);
+    socket.on('playerReconnected', onPlayerReconnected);
 
     return () => {
       socket.off('gameStateUpdate', onUpdate);
@@ -201,6 +255,8 @@ export default function GameRoom() {
       socket.off('actionError', onActionError);
       socket.off('rebuyError', onRebuyError);
       socket.off('error', onError);
+      socket.off('cardRevealed', onCardRevealed);
+      socket.off('playerReconnected', onPlayerReconnected);
     };
   }, []);
 
@@ -228,6 +284,20 @@ export default function GameRoom() {
   const sendAction = (action, amount = 0) => {
     setError(''); setShowRaise(false);
     socket.emit('playerAction', { roomId, action, amount });
+  };
+
+  const sendReady = () => {
+    setMyReadyStatus('ready');
+    socket.emit('playerReadyStatus', { roomId, status: 'ready' });
+  };
+  const sendSpectate = () => {
+    setMyReadyStatus('spectating');
+    socket.emit('playerReadyStatus', { roomId, status: 'spectating' });
+  };
+  const sendRevealCards = () => socket.emit('revealCards', { roomId });
+  const sendQueueNextHand = () => {
+    setMyReadyStatus('queued');
+    socket.emit('queueForNextHand', { roomId });
   };
 
   const handleRebuy = () => {
@@ -259,7 +329,20 @@ export default function GameRoom() {
 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 flex flex-col">
-          {room.phase === 'waiting' ? (
+          {room.phase === 'settlement' || settlementData ? (
+            <SettlementScreen
+              settlementData={settlementData}
+              room={room}
+              mySocketId={mySocketId}
+              settlementCountdown={settlementCountdown}
+              cardReveals={cardReveals}
+              myReadyStatus={myReadyStatus}
+              onReady={sendReady}
+              onSpectate={sendSpectate}
+              onRevealCards={sendRevealCards}
+              onQueueNextHand={sendQueueNextHand}
+            />
+          ) : room.phase === 'waiting' ? (
             <WaitingRoom room={room} isHost={isHost} mySocketId={mySocketId} roomId={roomId} />
           ) : (
             <>
@@ -444,7 +527,6 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
         );
       })}
 
-      {room.phase === 'showdown' && <ShowdownOverlay room={room} />}
     </div>
   );
 }
@@ -546,6 +628,126 @@ function Scoreboard({ room, mySocketId }) {
       </div>
       <div className="px-3 py-2 border-t border-gold/20 text-xs text-white/30 text-center">
         大盲 {(room.settings?.smallBlind || 0) * 2} | 局#{(room.dealerIndex ?? 0) + 1}
+      </div>
+    </div>
+  );
+}
+
+// ── 结算屏幕 ─────────────────────────────────────────────────
+function SettlementScreen({
+  settlementData, room, mySocketId, settlementCountdown,
+  cardReveals, myReadyStatus, onReady, onSpectate, onRevealCards, onQueueNextHand
+}) {
+  const { results = [], wasMuckWin } = settlementData || {};
+  const hasRevealed = !!cardReveals[mySocketId];
+
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center p-4 gap-4 overflow-y-auto">
+      <div className="bg-felt rounded-2xl p-5 border border-gold/20 w-full max-w-md space-y-4">
+        <h2 className="text-gold font-bold text-xl text-center">🃏 本局结算</h2>
+
+        {/* 胜负结果 */}
+        <div className="space-y-2">
+          {results.map(r => {
+            const revealedCards = cardReveals[r.socketId] || r.holeCards || [];
+            const player = room.players.find(p => p.socketId === r.socketId);
+            return (
+              <div key={r.socketId}
+                className={`rounded-xl px-3 py-2 flex items-center justify-between gap-2 ${r.delta > 0 ? 'bg-green-900/40 border border-green-500/30' : 'bg-felt-dark/60'}`}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-lg flex-shrink-0">
+                    {AVATARS[(player?.seatIndex || 0) % AVATARS.length]}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">
+                      {r.nickname}{r.socketId === mySocketId ? ' (我)' : ''}
+                    </div>
+                    {r.handName && (
+                      <div className="text-xs text-white/40">{HAND_NAME_MAP[r.handName] || r.handName}</div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <div className="flex gap-0.5">
+                    {revealedCards.map((card, i) =>
+                      card === 'hidden'
+                        ? <div key={i} className="w-7 h-10 bg-blue-900 border border-blue-500/40 rounded flex items-center justify-center text-white/30 text-sm">?</div>
+                        : <Card key={i} card={card} size="sm" />
+                    )}
+                  </div>
+                  <span className={`font-bold text-sm w-12 text-right ${r.delta > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {r.delta > 0 ? `+${r.delta}` : r.delta}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 亮牌按钮 */}
+        {!hasRevealed ? (
+          <button onClick={onRevealCards}
+            className="w-full border border-gold/40 text-gold hover:bg-gold/10 font-medium py-2 rounded-xl text-sm transition-colors">
+            亮牌 🂠
+          </button>
+        ) : (
+          <div className="text-center text-white/40 text-xs">已亮牌</div>
+        )}
+
+        {/* 玩家状态列表 */}
+        <div className="space-y-1">
+          <p className="text-white/40 text-xs text-center">玩家状态</p>
+          {room.players.map(p => {
+            const badge = p.readyStatus === 'ready' ? '🟢 准备'
+              : p.readyStatus === 'spectating' ? '👁 观战'
+              : p.readyStatus === 'queued' ? '🟡 下局参与'
+              : '⏳ 待选';
+            return (
+              <div key={p.socketId} className="flex items-center justify-between text-xs px-2">
+                <span className="text-white/70">{p.nickname}{p.socketId === mySocketId ? ' (我)' : ''}</span>
+                <span className="text-white/50">{badge}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 60秒倒计时进度条 */}
+        {settlementCountdown > 0 && (
+          <div className="space-y-1">
+            <div className="h-1 bg-black/30 rounded-full overflow-hidden">
+              <div className="h-full bg-gold transition-all duration-1000"
+                style={{ width: `${(settlementCountdown / 60) * 100}%` }} />
+            </div>
+            <p className="text-white/30 text-xs text-center">{settlementCountdown}s 后未选视为观战</p>
+          </div>
+        )}
+
+        {/* 行动按钮 */}
+        {myReadyStatus === 'pending' && (
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={onReady}
+              className="bg-green-700 hover:bg-green-600 font-bold py-3 rounded-xl transition-colors text-sm">
+              ✅ 准备
+            </button>
+            <button onClick={onSpectate}
+              className="bg-gray-700 hover:bg-gray-600 font-bold py-3 rounded-xl transition-colors text-sm">
+              👁 观战
+            </button>
+          </div>
+        )}
+        {myReadyStatus === 'spectating' && (
+          <button onClick={onQueueNextHand}
+            className="w-full border border-gold/40 text-gold hover:bg-gold/10 font-bold py-3 rounded-xl transition-colors text-sm">
+            下一局参与
+          </button>
+        )}
+        {(myReadyStatus === 'ready' || myReadyStatus === 'queued') && (
+          <div className="text-center py-1">
+            <span className="text-green-400 font-bold text-sm">
+              {myReadyStatus === 'ready' ? '✅ 已准备，等待其他玩家...' : '🟡 下局将参与'}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
