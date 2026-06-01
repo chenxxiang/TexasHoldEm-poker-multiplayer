@@ -10,6 +10,7 @@ export default function HomePage() {
   const [initialChips, setInitialChips] = useState(1000);
   const [smallBlind, setSmallBlind] = useState(10);
   const [maxRebuy, setMaxRebuy] = useState(1000);
+  const [actionTime, setActionTime] = useState(20);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -48,7 +49,7 @@ export default function HomePage() {
     setLoading(true);
     socket.emit('createRoom', {
       nickname: nickname.trim(),
-      settings: { initialChips, smallBlind, maxRebuyAmount: maxRebuy },
+      settings: { initialChips, smallBlind, maxRebuyAmount: maxRebuy, actionTime },
     });
   };
 
@@ -70,8 +71,7 @@ export default function HomePage() {
       <div className="bg-felt rounded-2xl shadow-2xl p-8 w-full max-w-md border border-gold/20">
         <div className="text-center mb-8">
           <div className="text-5xl mb-2">♠♥♦♣</div>
-          <h1 className="text-3xl font-bold text-gold">德州扑克</h1>
-          <p className="text-gold/50 text-sm mt-1">Texas Hold'em</p>
+          <h1 className="text-3xl font-bold text-gold">CX Game</h1>
         </div>
 
         {/* Tabs */}
@@ -121,40 +121,30 @@ export default function HomePage() {
             </>
           ) : (
             <>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-gold/50 text-xs block mb-1">初始筹码</label>
-                  <input
-                    type="number"
-                    className={inputCls}
-                    value={initialChips}
-                    min={100}
-                    onChange={e => setInitialChips(Number(e.target.value))}
-                  />
+                  <input type="number" className={inputCls} value={initialChips} min={100}
+                    onChange={e => setInitialChips(Number(e.target.value))} />
                 </div>
                 <div>
                   <label className="text-gold/50 text-xs block mb-1">小盲注</label>
-                  <input
-                    type="number"
-                    className={inputCls}
-                    value={smallBlind}
-                    min={1}
-                    onChange={e => setSmallBlind(Number(e.target.value))}
-                  />
+                  <input type="number" className={inputCls} value={smallBlind} min={1}
+                    onChange={e => setSmallBlind(Number(e.target.value))} />
                 </div>
                 <div>
                   <label className="text-gold/50 text-xs block mb-1">最大补码</label>
-                  <input
-                    type="number"
-                    className={inputCls}
-                    value={maxRebuy}
-                    min={0}
-                    onChange={e => setMaxRebuy(Number(e.target.value))}
-                  />
+                  <input type="number" className={inputCls} value={maxRebuy} min={0}
+                    onChange={e => setMaxRebuy(Number(e.target.value))} />
+                </div>
+                <div>
+                  <label className="text-gold/50 text-xs block mb-1">行动时限（秒）</label>
+                  <input type="number" className={inputCls} value={actionTime} min={5} max={120}
+                    onChange={e => setActionTime(Number(e.target.value))} />
                 </div>
               </div>
               <p className="text-gold/40 text-xs text-center">
-                大盲注 {smallBlind * 2} | 初始筹码 {initialChips}
+                大盲注 {smallBlind * 2} | 初始筹码 {initialChips} | 时限 {actionTime}s
               </p>
               <button
                 onClick={handleCreate}
