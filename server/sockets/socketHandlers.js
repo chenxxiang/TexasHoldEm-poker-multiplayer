@@ -385,19 +385,6 @@ module.exports = (io, socket) => {
     room.pot = 0;
     room.phase = 'showdown';
 
-    for (const player of room.players) {
-      io.to(player.socketId).emit('showdown', {
-        room: {
-          ...sanitizeRoom(room, player.socketId),
-          players: room.players.map(p => ({
-            ...p,
-            holeCards: !p.folded ? p.holeCards : [],
-          })),
-        },
-        winners: room.players.filter(p => p.won > 0).map(w => w.socketId),
-      });
-    }
-
     room.phase = 'settlement';
     room.players.forEach(p => { p.readyStatus = 'pending'; });
 
