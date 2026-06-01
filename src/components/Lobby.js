@@ -14,7 +14,7 @@ function Lobby({ onJoinRoom }) {
 
   return (
     <div className="lobby">
-      <h2>Join or Create a Poker Room</h2>
+      <h2>Join or Create a Room</h2>
       <p style={{ fontSize: '14px', color: '#aaa' }}>
         Enter a room code to join. If the room doesn't exist, one will be created.
       </p>
