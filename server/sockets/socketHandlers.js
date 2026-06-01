@@ -122,6 +122,7 @@ module.exports = (io, socket) => {
     if (!player) return;
     player.readyStatus = 'queued';
     broadcastToEach(io, room, 'gameStateUpdate');
+    checkAllReadyAndStart(roomId);
   });
 
   // ── 断线处理 ──────────────────────────────────────────────
@@ -135,8 +136,12 @@ module.exports = (io, socket) => {
 
     player.disconnected = true;
 
-    // Delete room only when all players disconnected and no active game
-    if (room.players.every(p => p.disconnected) && room.phase === 'waiting') {
+    // Delete room only when all players disconnected
+    if (room.players.every(p => p.disconnected)) {
+      if (room._settlementTimeout) {
+        clearTimeout(room._settlementTimeout);
+        room._settlementTimeout = null;
+      }
       roomManager.rooms.delete(roomId);
       return;
     }
