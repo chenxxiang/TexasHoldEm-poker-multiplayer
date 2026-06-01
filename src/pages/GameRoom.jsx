@@ -586,22 +586,6 @@ function PlayerSeat({ player, seatPos, posStyle, isCurrentTurn, isMe, posLabel, 
   );
 }
 
-// ── 摊牌覆盖层 ───────────────────────────────────────────────
-function ShowdownOverlay({ room }) {
-  const winners = room.players.filter(p => p.won > 0);
-  return (
-    <div className="absolute inset-0 flex items-center justify-center" style={{ pointerEvents: 'none' }}>
-      <div className="bg-black/75 rounded-2xl px-6 py-4 text-center border border-yellow-500/50">
-        <p className="text-yellow-300 font-bold text-lg mb-2">🎴 摊牌！</p>
-        {winners.map(p => (
-          <p key={p.socketId} className="text-gold font-bold">🏆 {p.nickname} +{p.won}</p>
-        ))}
-        <p className="text-white/40 text-xs mt-2">5秒后自动开始下一局...</p>
-      </div>
-    </div>
-  );
-}
-
 // ── 记分牌 ───────────────────────────────────────────────────
 function Scoreboard({ room, mySocketId }) {
   const sorted = [...room.players].sort((a, b) => b.chips - a.chips);
