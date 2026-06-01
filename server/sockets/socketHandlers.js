@@ -18,7 +18,15 @@ module.exports = (io, socket) => {
   socket.on('joinRoom', ({ roomId, nickname }) => {
     const result = roomManager.joinRoom(roomId, socket.id, nickname);
     if (result.error) { socket.emit('joinError', { code: result.error }); return; }
+
     socket.join(roomId);
+
+    if (result.reconnected) {
+      socket.emit('gameStateUpdate', { room: sanitizeRoom(result.room, socket.id) });
+      io.to(roomId).emit('playerReconnected', { nickname, socketId: socket.id });
+      return;
+    }
+
     socket.emit('joinedRoom', { room: sanitizeRoom(result.room, socket.id) });
     for (const player of result.room.players) {
       if (player.socketId !== socket.id) {
@@ -103,20 +111,17 @@ module.exports = (io, socket) => {
     if (!room) return;
     const roomId = room.roomId;
     const player = room.players.find(p => p.socketId === socket.id);
-    const nickname = player?.nickname || '玩家';
+    if (!player) return;
 
-    setTimeout(() => {
-      const currentRoom = roomManager.getRoom(roomId);
-      if (!currentRoom) return;
-      const stillThere = currentRoom.players.find(p => p.socketId === socket.id);
-      if (!stillThere) return;
-      const leaveResult = roomManager.leaveRoom(roomId, socket.id);
-      io.to(roomId).emit('playerLeft', { nickname, socketId: socket.id });
-      if (leaveResult?.hostChanged) io.to(roomId).emit('hostChanged', { newHostSocketId: leaveResult.newHostSocketId });
-      if (leaveResult?.roomDeleted) return;
-      const updatedRoom = roomManager.getRoom(roomId);
-      if (updatedRoom) broadcastToEach(io, updatedRoom, 'gameStateUpdate');
-    }, 30000);
+    player.disconnected = true;
+
+    // Delete room only when all players disconnected and no active game
+    if (room.players.every(p => p.disconnected) && room.phase === 'waiting') {
+      roomManager.rooms.delete(roomId);
+      return;
+    }
+
+    broadcastToEach(io, room, 'gameStateUpdate');
   });
 
   // ─────────────────────────────────────────────────────────
