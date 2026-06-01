@@ -329,24 +329,11 @@ export default function GameRoom() {
 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 flex flex-col">
-          {room.phase === 'settlement' || settlementData ? (
-            <SettlementScreen
-              settlementData={settlementData}
-              room={room}
-              mySocketId={mySocketId}
-              settlementCountdown={settlementCountdown}
-              cardReveals={cardReveals}
-              myReadyStatus={myReadyStatus}
-              onReady={sendReady}
-              onSpectate={sendSpectate}
-              onRevealCards={sendRevealCards}
-              onQueueNextHand={sendQueueNextHand}
-            />
-          ) : room.phase === 'waiting' ? (
+          {room.phase === 'waiting' ? (
             <WaitingRoom room={room} isHost={isHost} mySocketId={mySocketId} roomId={roomId} />
           ) : (
-            <>
-              {/* 圆桌区 */}
+            <div className="flex-1 flex flex-col relative">
+              {/* 圆桌区（结算时依然可见） */}
               <div className="flex-1 relative" style={{ minHeight: 400 }}>
                 <PokerTable
                   room={room}
@@ -457,7 +444,23 @@ export default function GameRoom() {
                   </div>
                 )}
               </div>
-            </>
+
+              {/* 结算弹窗覆盖层（叠在牌桌上方） */}
+              {(room.phase === 'settlement' || settlementData) && (
+                <SettlementScreen
+                  settlementData={settlementData}
+                  room={room}
+                  mySocketId={mySocketId}
+                  settlementCountdown={settlementCountdown}
+                  cardReveals={cardReveals}
+                  myReadyStatus={myReadyStatus}
+                  onReady={sendReady}
+                  onSpectate={sendSpectate}
+                  onRevealCards={sendRevealCards}
+                  onQueueNextHand={sendQueueNextHand}
+                />
+              )}
+            </div>
           )}
         </div>
 
@@ -692,7 +695,7 @@ function Scoreboard({ room, mySocketId }) {
   );
 }
 
-// ── 结算屏幕 ─────────────────────────────────────────────────
+// ── 结算弹窗（覆盖在牌桌上方）────────────────────────────────
 function SettlementScreen({
   settlementData, room, mySocketId, settlementCountdown,
   cardReveals, myReadyStatus, onReady, onSpectate, onRevealCards, onQueueNextHand
@@ -701,8 +704,10 @@ function SettlementScreen({
   const hasRevealed = !!cardReveals[mySocketId];
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-4 gap-4 overflow-y-auto">
-      <div className="bg-felt rounded-2xl p-5 border border-gold/20 w-full max-w-md space-y-4">
+    <div className="absolute inset-0 z-20 flex items-center justify-center p-3"
+      style={{ background: 'rgba(0,0,0,0.72)' }}>
+      <div className="bg-felt rounded-2xl p-4 border border-gold/30 w-full max-w-sm space-y-3 overflow-y-auto"
+        style={{ maxHeight: '90vh' }}>
         <h2 className="text-gold font-bold text-xl text-center">🃏 本局结算</h2>
 
         {/* 胜负结果 */}

@@ -401,8 +401,6 @@ module.exports = (io, socket) => {
       p.chips += p.won;
     });
     room.pot = 0;
-    room.phase = 'showdown';
-
     room.phase = 'settlement';
     room.players.forEach(p => { p.readyStatus = 'pending'; });
 
@@ -491,10 +489,14 @@ module.exports = (io, socket) => {
     const room = roomManager.getRoom(roomId);
     if (!room || room.phase !== 'settlement') return;
 
-    const allChosen = room.players.every(p => p.readyStatus !== 'pending');
+    // Only consider connected players — disconnected players can't choose
+    const connected = room.players.filter(p => !p.disconnected);
+    if (connected.length === 0) return;
+
+    const allChosen = connected.every(p => p.readyStatus !== 'pending');
     if (!allChosen) return;
 
-    const readyCount = room.players.filter(
+    const readyCount = connected.filter(
       p => p.readyStatus === 'ready' || p.readyStatus === 'queued'
     ).length;
 
