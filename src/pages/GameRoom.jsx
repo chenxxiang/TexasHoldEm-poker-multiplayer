@@ -659,20 +659,31 @@ function Scoreboard({ room, mySocketId }) {
         <p className="text-gold text-sm font-bold">📊 记分牌</p>
       </div>
       <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
-        {sorted.map((p, rank) => (
-          <div key={p.socketId}
-            className={`rounded-lg px-2 py-1.5 flex items-center justify-between text-xs ${p.socketId === mySocketId ? 'bg-blue-900/40 border border-blue-500/30' : 'bg-felt-dark/60'}`}>
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className={`font-bold flex-shrink-0 ${rank === 0 ? 'text-gold' : 'text-white/40'}`}>#{rank + 1}</span>
-              <span className="truncate">{p.nickname}</span>
+        {sorted.map((p, rank) => {
+          const totalProfit = p.chips
+            - room.settings.initialChips
+            - (p.rebuyCount || 0) * room.settings.initialChips;
+          return (
+            <div key={p.socketId}
+              className={`rounded-lg px-2 py-1.5 flex items-center justify-between text-xs ${p.socketId === mySocketId ? 'bg-blue-900/40 border border-blue-500/30' : 'bg-felt-dark/60'}`}>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className={`font-bold flex-shrink-0 ${rank === 0 ? 'text-gold' : 'text-white/40'}`}>#{rank + 1}</span>
+                <span className="truncate">{p.nickname}</span>
+              </div>
+              <div className="text-right flex-shrink-0">
+                <div className="text-gold font-bold">{p.chips}</div>
+                {totalProfit !== 0 && (
+                  <div className={totalProfit > 0 ? 'text-green-400' : 'text-red-400'} style={{ fontSize: 9 }}>
+                    {totalProfit > 0 ? `+${totalProfit}` : totalProfit}
+                  </div>
+                )}
+                {(p.rebuyCount || 0) > 0 && (
+                  <div className="text-orange-300" style={{ fontSize: 9 }}>补{p.rebuyCount}次</div>
+                )}
+              </div>
             </div>
-            <div className="text-right flex-shrink-0">
-              <div className="text-gold font-bold">{p.chips}</div>
-              {(p.raiseCount || 0) > 0 && <div className="text-blue-300" style={{fontSize:9}}>↑{p.raiseCount}次</div>}
-              {(p.rebuyCount || 0) > 0 && <div className="text-orange-300" style={{fontSize:9}}>补{p.rebuyCount}次</div>}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div className="px-3 py-2 border-t border-gold/20 text-xs text-white/30 text-center">
         大盲 {(room.settings?.smallBlind || 0) * 2} | 局#{(room.dealerIndex ?? 0) + 1}
