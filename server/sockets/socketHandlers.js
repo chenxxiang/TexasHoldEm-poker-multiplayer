@@ -476,6 +476,8 @@ module.exports = (io, socket) => {
   function sanitizeRoom(room, viewerSocketId) {
     return {
       ...room,
+      _settlementTimeout: undefined,
+      _startingNextHand: undefined,
       actedPlayerIds: [...(room.actedPlayerIds || [])],
       players: room.players.map(p => ({
         ...p,
