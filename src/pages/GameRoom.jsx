@@ -697,7 +697,7 @@ function SettlementScreen({
   settlementData, room, mySocketId, settlementCountdown,
   cardReveals, myReadyStatus, onReady, onSpectate, onRevealCards, onQueueNextHand
 }) {
-  const { results = [], wasMuckWin } = settlementData || {};
+  const { results = [] } = settlementData || {};
   const hasRevealed = !!cardReveals[mySocketId];
 
   return (
