@@ -125,6 +125,19 @@ module.exports = (io, socket) => {
     checkAllReadyAndStart(roomId);
   });
 
+  // ── 结算阶段：自主揭示手牌 ───────────────────────────────────
+  socket.on('revealCards', ({ roomId }) => {
+    const room = roomManager.getRoom(roomId);
+    if (!room || room.phase !== 'settlement') return;
+    const player = room.players.find(p => p.socketId === socket.id);
+    if (!player) return;
+    player.voluntaryReveal = true;
+    io.to(roomId).emit('cardRevealed', {
+      socketId: socket.id,
+      holeCards: player.holeCards,
+    });
+  });
+
   // ── 断线处理 ──────────────────────────────────────────────
   socket.on('disconnect', () => {
     timerManager.clearTimer(socket.id);
