@@ -529,7 +529,28 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
 }
 
 // ── 手牌提示（Task 9 将实现） ────────────────────────────────
-function HandHint() { return null; }
+function HandHint({ holeCards, communityCards }) {
+  const hint = useMemo(() => {
+    if (!holeCards || holeCards.length < 2) return null;
+    try {
+      const allRaw = [...holeCards, ...communityCards];
+      const all = allRaw
+        .map(c => convertCardCode(typeof c === 'string' ? c : c?.code))
+        .filter(Boolean);
+      if (all.length < 2) return null;
+      const hand = Hand.solve(all);
+      return HAND_NAME_MAP[hand.name] || hand.name;
+    } catch (e) { return null; }
+  }, [holeCards, communityCards]);
+
+  if (!hint) return null;
+
+  return (
+    <div className="mt-0.5 px-2 py-0.5 bg-black/60 rounded text-xs text-yellow-300 border border-yellow-500/20 text-center max-w-[80px]">
+      💡 {hint}
+    </div>
+  );
+}
 
 // ── 头像倒计时 ───────────────────────────────────────────────
 function AvatarTimer({ player, seatPos, posStyle, isCurrentTurn, isMe, posLabel, avatarIdx, timerInfo, countdown, communityCards }) {
