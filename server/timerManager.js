@@ -3,20 +3,14 @@ class TimerManager {
     this.timers = new Map();
   }
 
-  startTimer(socketId, roomId, hasUsedTimeBank, onTimeout) {
+  startTimer(socketId, roomId, duration, onTimeout) {
     this.clearTimer(socketId);
     const startTime = Date.now();
     const timeout = setTimeout(() => {
       this.timers.delete(socketId);
       onTimeout(socketId, roomId);
-    }, 60000);
-    this.timers.set(socketId, {
-      timeout,
-      startTime,
-      hasUsedTimeBank,
-      roomId,
-      onTimeout,
-    });
+    }, duration * 1000);
+    this.timers.set(socketId, { timeout, startTime, duration, roomId, onTimeout, hasUsedTimeBank: false });
   }
 
   extendTimer(socketId) {
@@ -24,11 +18,11 @@ class TimerManager {
     if (!entry) return { error: 'TIMER_NOT_FOUND' };
     if (entry.hasUsedTimeBank) return { error: 'TIME_BANK_USED' };
     clearTimeout(entry.timeout);
-    const { roomId, onTimeout } = entry;
+    const { roomId, onTimeout, duration } = entry;
     const newTimeout = setTimeout(() => {
       this.timers.delete(socketId);
       onTimeout(socketId, roomId);
-    }, 60000);
+    }, duration * 1000);
     entry.timeout = newTimeout;
     entry.startTime = Date.now();
     entry.hasUsedTimeBank = true;
@@ -37,17 +31,13 @@ class TimerManager {
 
   clearTimer(socketId) {
     const entry = this.timers.get(socketId);
-    if (entry) {
-      clearTimeout(entry.timeout);
-      this.timers.delete(socketId);
-    }
+    if (entry) { clearTimeout(entry.timeout); this.timers.delete(socketId); }
   }
 
   getRemaining(socketId) {
     const entry = this.timers.get(socketId);
     if (!entry) return 0;
-    const elapsed = (Date.now() - entry.startTime) / 1000;
-    return Math.max(0, 60 - elapsed);
+    return Math.max(0, entry.duration - (Date.now() - entry.startTime) / 1000);
   }
 
   clearAll() {

@@ -21,6 +21,7 @@ class RoomManager {
         initialChips: settings.initialChips,
         smallBlind: settings.smallBlind,
         maxRebuyAmount: settings.maxRebuyAmount,
+        actionTime: settings.actionTime || 20,
       },
       players: [{
         socketId,

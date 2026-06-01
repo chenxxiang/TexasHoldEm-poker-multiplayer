@@ -271,7 +271,7 @@ module.exports = (io, socket) => {
       return;
     }
 
-    timerManager.startTimer(actor.socketId, room.roomId, actor.hasUsedTimeBank, (socketId, roomId) => {
+    timerManager.startTimer(actor.socketId, room.roomId, room.settings.actionTime || 20, (socketId, roomId) => {
       const r = roomManager.getRoom(roomId);
       if (!r) return;
       const timedOutActor = r.players[r.currentTurnIndex];
@@ -284,7 +284,7 @@ module.exports = (io, socket) => {
 
     io.to(room.roomId).emit('timerStarted', {
       socketId: actor.socketId,
-      duration: 60,
+      duration: room.settings.actionTime || 20,
       hasTimeBank: !actor.hasUsedTimeBank,
     });
   }
