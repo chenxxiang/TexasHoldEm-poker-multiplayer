@@ -37,6 +37,9 @@ class RoomManager {
         status: 'active',
         won: 0,
         raiseCount: 0,
+        disconnected: false,
+        readyStatus: 'pending',
+        voluntaryReveal: false,
       }],
       phase: 'waiting',
       communityCards: [],
@@ -56,8 +59,19 @@ class RoomManager {
   joinRoom(roomId, socketId, nickname) {
     const room = this.rooms.get(roomId);
     if (!room) return { error: 'ROOM_NOT_FOUND' };
+
+    // Reconnect: same nickname already in room
+    const existing = room.players.find(p => p.nickname === nickname);
+    if (existing) {
+      existing.socketId = socketId;
+      existing.disconnected = false;
+      return { success: true, reconnected: true, room };
+    }
+
+    // New player
     if (room.players.length >= 10) return { error: 'ROOM_FULL' };
     if (room.phase !== 'waiting') return { error: 'GAME_IN_PROGRESS' };
+
     room.players.push({
       socketId,
       nickname,
@@ -72,6 +86,9 @@ class RoomManager {
       status: 'active',
       won: 0,
       raiseCount: 0,
+      disconnected: false,
+      readyStatus: 'pending',
+      voluntaryReveal: false,
     });
     return { success: true, room };
   }
@@ -92,31 +109,62 @@ class RoomManager {
     return { hostChanged: false };
   }
 
+  _nextPlayingIndex(room, fromIndex) {
+    const n = room.players.length;
+    for (let i = 1; i <= n; i++) {
+      const idx = (fromIndex + i) % n;
+      if (room.players[idx]?.status !== 'spectating') return idx;
+    }
+    return -1;
+  }
+
   startGame(roomId) {
     const room = this.rooms.get(roomId);
-    if (!room || room.players.length < 2) return { error: 'NOT_ENOUGH_PLAYERS' };
-    if (room.phase !== 'waiting') return { error: 'GAME_ALREADY_STARTED' };
+    if (!room || room.phase !== 'waiting') return { error: 'GAME_ALREADY_STARTED' };
+
+    const playingPlayers = room.players.filter(p => p.status !== 'spectating');
+    if (playingPlayers.length < 2) return { error: 'NOT_ENOUGH_PLAYERS' };
 
     const n = room.players.length;
+
+    // Advance dealerIndex past any spectating players
+    for (let i = 0; i < n; i++) {
+      if (room.players[room.dealerIndex % n]?.status !== 'spectating') break;
+      room.dealerIndex = (room.dealerIndex + 1) % n;
+    }
     const dealerIdx = room.dealerIndex % n;
-    // Heads-up: dealer = SB; 3+ players: SB is left of dealer
-    const sbIdx = n === 2 ? dealerIdx : (dealerIdx + 1) % n;
-    const bbIdx = n === 2 ? (dealerIdx + 1) % n : (dealerIdx + 2) % n;
+
+    // SB/BB/first-to-act use full-array indices, skipping spectating
+    const sbIdx = playingPlayers.length === 2
+      ? dealerIdx
+      : this._nextPlayingIndex(room, dealerIdx);
+    const bbIdx = this._nextPlayingIndex(room, sbIdx);
+    const firstToActIdx = playingPlayers.length === 2
+      ? dealerIdx
+      : this._nextPlayingIndex(room, bbIdx);
 
     const deck = shuffle(createDeck());
-    const playerIds = room.players.map(p => p.socketId);
-    const { hands, remainingDeck } = dealHands(deck, playerIds);
+    const { hands, remainingDeck } = dealHands(deck, playingPlayers.map(p => p.socketId));
 
     room.players.forEach(p => {
-      p.holeCards = hands[p.socketId];
-      p.bet = 0;
-      p.totalBet = 0;
-      p.folded = false;
-      p.hasActed = false;
-      p.hasUsedTimeBank = false;
-      p.status = 'active';
-      p.won = 0;
-      p.raiseCount = 0;
+      if (p.status === 'spectating') {
+        p.holeCards = [];
+        p.folded = true;
+        p.bet = 0;
+        p.totalBet = 0;
+        p.hasActed = true;
+        p.won = 0;
+      } else {
+        p.holeCards = hands[p.socketId];
+        p.bet = 0;
+        p.totalBet = 0;
+        p.folded = false;
+        p.hasActed = false;
+        p.hasUsedTimeBank = false;
+        p.status = 'active';
+        p.won = 0;
+        p.raiseCount = 0;
+      }
     });
 
     room.deck = remainingDeck;
@@ -125,29 +173,18 @@ class RoomManager {
     room.loopNum = 0;
     room.actedPlayerIds = new Set();
     room.phase = 'preflop';
-    room.dealerIndex = dealerIdx;
 
-    // Post blinds
     const sbPlayer = room.players[sbIdx];
     const bbPlayer = room.players[bbIdx];
     const sbAmount = Math.min(room.settings.smallBlind, sbPlayer.chips);
     const bbAmount = Math.min(room.settings.smallBlind * 2, bbPlayer.chips);
 
-    sbPlayer.chips -= sbAmount;
-    sbPlayer.bet = sbAmount;
-    sbPlayer.totalBet = sbAmount;
-    bbPlayer.chips -= bbAmount;
-    bbPlayer.bet = bbAmount;
-    bbPlayer.totalBet = bbAmount;
+    sbPlayer.chips -= sbAmount; sbPlayer.bet = sbAmount; sbPlayer.totalBet = sbAmount;
+    bbPlayer.chips -= bbAmount; bbPlayer.bet = bbAmount; bbPlayer.totalBet = bbAmount;
     room.pot = sbAmount + bbAmount;
     room.betSize = bbAmount;
 
-    // Pre-flop: heads-up → dealer/SB acts first; 3+ players → UTG acts first
-    if (n === 2) {
-      room.currentTurnIndex = dealerIdx;
-    } else {
-      room.currentTurnIndex = (dealerIdx + 3) % n;
-    }
+    room.currentTurnIndex = firstToActIdx;
     room.lastAggressorIndex = bbIdx;
 
     return { success: true };
@@ -200,7 +237,11 @@ class RoomManager {
   advanceDealer(roomId) {
     const room = this.rooms.get(roomId);
     if (!room) return;
-    room.dealerIndex = (room.dealerIndex + 1) % room.players.length;
+    const n = room.players.length;
+    for (let i = 0; i < n; i++) {
+      room.dealerIndex = (room.dealerIndex + 1) % n;
+      if (room.players[room.dealerIndex]?.status !== 'spectating') break;
+    }
   }
 
   rebuy(roomId, socketId, amount) {
