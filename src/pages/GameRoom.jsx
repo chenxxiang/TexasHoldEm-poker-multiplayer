@@ -29,17 +29,19 @@ const PHASE_LABELS = {
   waiting: '等待中', preflop: '翻牌前', flop: '翻牌', turn: '转牌', river: '河牌', showdown: '摊牌',
 };
 const AVATARS = ['🐯','🦁','🐻','🐼','🐨','🦊','🐺','🐸','🐮','🐷'];
+
+// Portrait layout — positions as % of the game container
 const SEAT_POS = [
-  { x: 50, y: 88 },
-  { x: 80, y: 75 },
-  { x: 92, y: 50 },
-  { x: 80, y: 22 },
-  { x: 62, y: 8  },
-  { x: 50, y: 5  },
-  { x: 38, y: 8  },
-  { x: 20, y: 22 },
-  { x: 8,  y: 50 },
-  { x: 20, y: 75 },
+  { x: 50, y: 69 },  // 0 = me (bottom center)
+  { x: 85, y: 62 },  // 1
+  { x: 91, y: 52 },  // 2
+  { x: 80, y: 39 },  // 3
+  { x: 65, y: 32 },  // 4
+  { x: 50, y: 29 },  // 5
+  { x: 35, y: 32 },  // 6
+  { x: 20, y: 39 },  // 7
+  { x: 9,  y: 52 },  // 8
+  { x: 15, y: 62 },  // 9
 ];
 
 function getPositionLabel(playerIndex, dealerIndex, numPlayers) {
@@ -51,7 +53,7 @@ function getPositionLabel(playerIndex, dealerIndex, numPlayers) {
   return null;
 }
 
-// ── 公共牌翻转组件 ──────────────────────────────────────────
+// ── Community cards with flip animation ────────────────────────
 function CommunityCards({ cards }) {
   const [revealed, setRevealed] = useState([]);
   const prevLen = useRef(0);
@@ -64,18 +66,23 @@ function CommunityCards({ cards }) {
         setTimeout(() => setRevealed(r => [...r, i]), delay);
       }
     }
-    if (newLen < prevLen.current) setRevealed([]); // 新局重置
+    if (newLen < prevLen.current) setRevealed([]);
     prevLen.current = newLen;
   }, [cards.length]);
 
+  if (cards.length === 0) return null;
+
   return (
-    <div className="flex gap-2 justify-center items-center" style={{ minHeight: 70 }}>
+    <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
       {Array.from({ length: 5 }).map((_, i) => {
         const isFlipped = revealed.includes(i);
         const card = cards[i] || null;
+        if (i >= Math.ceil(cards.length / 1) && !card) return null;
+        // only render slots up to the max expected for current street
+        const maxSlots = cards.length <= 3 ? 3 : cards.length;
+        if (i >= maxSlots) return null;
         return (
-          <div key={i} style={{ position: 'relative', width: 50, height: 70, perspective: 300 }}>
-            {/* 背面 */}
+          <div key={i} style={{ position: 'relative', width: 50, height: 70, perspective: 300, flexShrink: 0 }}>
             <div style={{
               position: 'absolute', inset: 0,
               transition: 'transform 0.55s ease',
@@ -83,9 +90,8 @@ function CommunityCards({ cards }) {
               transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
               backfaceVisibility: 'hidden',
             }}>
-              <BackCard w={50} h={70} />
+              <Card card="hidden" size="md" />
             </div>
-            {/* 正面 */}
             <div style={{
               position: 'absolute', inset: 0,
               transition: 'transform 0.55s ease',
@@ -102,26 +108,7 @@ function CommunityCards({ cards }) {
   );
 }
 
-function BackCard({ w = 50, h = 70 }) {
-  return (
-    <div style={{
-      width: w, height: h,
-      background: 'linear-gradient(135deg, #1a3a6e 0%, #1e4a8e 50%, #1a3a6e 100%)',
-      border: '1.5px solid #4a7fc1',
-      borderRadius: 5,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }}>
-      <div style={{
-        width: w - 8, height: h - 8,
-        border: '1px solid #4a7fc166',
-        borderRadius: 3,
-        backgroundImage: 'repeating-linear-gradient(45deg, #2d5a9e22 0px, #2d5a9e22 2px, transparent 2px, transparent 8px)',
-      }} />
-    </div>
-  );
-}
-
-// ── 主页面 ──────────────────────────────────────────────────
+// ── Main component ─────────────────────────────────────────────
 export default function GameRoom() {
   const { roomId } = useParams();
   const location = useLocation();
@@ -152,6 +139,22 @@ export default function GameRoom() {
     return () => socket.off('connect', onConnect);
   }, []);
 
+  // Hand hint — must be before any conditional return
+  const me = room?.players?.find(p => p.socketId === mySocketId);
+  const myHandHint = useMemo(() => {
+    if (!me?.holeCards || me.holeCards.length < 2) return null;
+    try {
+      const allRaw = [...me.holeCards, ...(room?.communityCards || [])];
+      const all = allRaw
+        .map(c => convertCardCode(typeof c === 'string' ? c : c?.code))
+        .filter(Boolean);
+      if (all.length < 2) return null;
+      const hand = Hand.solve(all);
+      return HAND_NAME_MAP[hand.name] || hand.name;
+    } catch { return null; }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me?.holeCards, room?.communityCards]);
+
   useEffect(() => {
     if (roomId) socket.emit('getRoomState', { roomId });
   }, [roomId]);
@@ -159,9 +162,8 @@ export default function GameRoom() {
   useEffect(() => {
     if (!room) return;
     const bb = (room.settings?.smallBlind || 5) * 2;
-    const minR = room.betSize + bb;
-    setRaiseAmount(minR);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setRaiseAmount(room.betSize + bb);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room?.betSize]);
 
   useEffect(() => {
@@ -173,10 +175,7 @@ export default function GameRoom() {
 
   useEffect(() => {
     if (!settlementDeadline) { setSettlementCountdown(0); return; }
-    const tick = () => {
-      const remaining = Math.max(0, Math.ceil((settlementDeadline - Date.now()) / 1000));
-      setSettlementCountdown(remaining);
-    };
+    const tick = () => setSettlementCountdown(Math.max(0, Math.ceil((settlementDeadline - Date.now()) / 1000)));
     tick();
     const iv = setInterval(tick, 1000);
     return () => clearInterval(iv);
@@ -186,7 +185,6 @@ export default function GameRoom() {
     const onUpdate = (payload) => {
       const r = payload?.room ?? payload;
       setRoom(r); setError(''); setShowRaise(false);
-      // Clear stale timer when no one can act (all-in runout)
       const canAct = r.players.filter(p => !p.folded && p.chips > 0);
       if (canAct.length === 0) { setTimerInfo(null); setCountdown(0); }
     };
@@ -198,8 +196,8 @@ export default function GameRoom() {
       setSettlementData(null);
       setSettlementDeadline(null);
       setCardReveals({});
-      const me = r.players.find(p => p.socketId === socket.id);
-      setMyReadyStatus(me?.readyStatus || 'pending');
+      const me2 = r.players.find(p => p.socketId === socket.id);
+      setMyReadyStatus(me2?.readyStatus || 'pending');
     };
     const onPlayerJoined = ({ room: r }) => setRoom(r);
     const onShowdown = ({ room: r, results, wasMuckWin, settlementDeadline: deadline }) => {
@@ -207,19 +205,17 @@ export default function GameRoom() {
       setSettlementData({ results: results || [], wasMuckWin });
       setSettlementDeadline(deadline);
       setCardReveals({});
-      const me = r.players.find(p => p.socketId === socket.id);
-      setMyReadyStatus(me?.readyStatus || 'pending');
+      const me2 = r.players.find(p => p.socketId === socket.id);
+      setMyReadyStatus(me2?.readyStatus || 'pending');
       const winners = (results || []).filter(x => x.delta > 0).map(x => x.nickname);
       setMessage(winners.length ? `🏆 ${winners.join('、')} 获胜！` : '');
     };
-    const onCardRevealed = ({ socketId, holeCards }) => {
+    const onCardRevealed = ({ socketId, holeCards }) =>
       setCardReveals(prev => ({ ...prev, [socketId]: holeCards }));
-    };
     const onPlayerReconnected = ({ nickname }) => setMessage(`${nickname} 重新连线了`);
-    const onTimerStarted = (info) => { setTimerInfo(info); };
-    const onTimerExtended = ({ socketId }) => {
+    const onTimerStarted = (info) => setTimerInfo(info);
+    const onTimerExtended = ({ socketId }) =>
       setTimerInfo(prev => prev?.socketId === socketId ? { ...prev, hasTimeBank: false } : prev);
-    };
     const onTimedOut = ({ socketId, autoAction }) => {
       const p = roomRef.current?.players.find(p => p.socketId === socketId);
       setMessage(`${p?.nickname || '玩家'} 超时 → ${autoAction === 'fold' ? '弃牌' : '过牌'}`);
@@ -252,6 +248,7 @@ export default function GameRoom() {
       socket.off('playerJoined', onPlayerJoined);
       socket.off('showdown', onShowdown);
       socket.off('timerStarted', onTimerStarted);
+      socket.off('timerExtended', onTimerExtended);
       socket.off('timedOut', onTimedOut);
       socket.off('playerLeft', onPlayerLeft);
       socket.off('actionError', onActionError);
@@ -264,14 +261,15 @@ export default function GameRoom() {
 
   if (!room) {
     return (
-      <div className="min-h-screen bg-felt-dark flex flex-col items-center justify-center gap-4">
-        <p className="text-gold text-xl">未找到房间</p>
-        <button onClick={() => navigate('/')} className="bg-gold text-felt-dark font-bold px-6 py-2 rounded-xl">返回大厅</button>
+      <div style={{ minHeight: '100vh', background: '#060d1a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+        <p style={{ color: '#f0d060', fontSize: 20 }}>未找到房间</p>
+        <button onClick={() => navigate('/')} style={{ background: '#f0d060', color: '#060d1a', fontWeight: 700, padding: '10px 28px', borderRadius: 14, border: 'none', cursor: 'pointer', fontSize: 15 }}>
+          返回大厅
+        </button>
       </div>
     );
   }
 
-  const me = room.players.find(p => p.socketId === mySocketId);
   const isMyTurn = room.players[room.currentTurnIndex]?.socketId === mySocketId;
   const isHost = room.hostSocketId === mySocketId;
   const toCall = me ? Math.max(0, (room.betSize || 0) - (me.bet || 0)) : 0;
@@ -282,197 +280,277 @@ export default function GameRoom() {
   const canRaise = maxRaise > room.betSize;
   const actualRaise = Math.max(minRaise, Math.min(raiseAmount, maxRaise));
   const raiseCost = me ? actualRaise - me.bet : 0;
+  const halfPot = Math.floor(room.pot / 2);
 
   const sendAction = (action, amount = 0) => {
     setError(''); setShowRaise(false);
     socket.emit('playerAction', { roomId, action, amount });
   };
-
-  const sendReady = () => {
-    setMyReadyStatus('ready');
-    socket.emit('playerReadyStatus', { roomId, status: 'ready' });
-  };
-  const sendSpectate = () => {
-    setMyReadyStatus('spectating');
-    socket.emit('playerReadyStatus', { roomId, status: 'spectating' });
-  };
+  const sendReady = () => { setMyReadyStatus('ready'); socket.emit('playerReadyStatus', { roomId, status: 'ready' }); };
+  const sendSpectate = () => { setMyReadyStatus('spectating'); socket.emit('playerReadyStatus', { roomId, status: 'spectating' }); };
   const sendRevealCards = () => socket.emit('revealCards', { roomId });
-  const sendQueueNextHand = () => {
-    setMyReadyStatus('queued');
-    socket.emit('queueForNextHand', { roomId });
-  };
-
-  const handleRebuy = () => {
-    setRebuyError('');
-    socket.emit('rebuy', { roomId, amount: room.settings.initialChips });
-  };
+  const sendQueueNextHand = () => { setMyReadyStatus('queued'); socket.emit('queueForNextHand', { roomId }); };
+  const handleRebuy = () => { setRebuyError(''); socket.emit('rebuy', { roomId, amount: room.settings.initialChips }); };
 
   const showActionButtons = isMyTurn && me && !me.folded && me.chips > 0 && room.phase !== 'showdown' && room.phase !== 'waiting';
   const showRebuyButton = me && room.phase !== 'waiting' && (me.folded || me.chips === 0);
+  const hasMyCards = (me?.holeCards?.length ?? 0) > 0;
 
   return (
-    <div className="min-h-screen bg-felt-dark text-white flex flex-col">
-      {/* 顶部栏 */}
-      <div className="bg-felt border-b border-gold/20 px-3 py-2 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <button onClick={() => navigate('/')} className="text-gold/50 hover:text-gold text-sm">← 大厅</button>
-          <span className="text-gold font-mono font-bold tracking-widest">{roomId}</span>
-          <span className="bg-gold/20 text-gold text-xs px-2 py-0.5 rounded-full">{PHASE_LABELS[room.phase]}</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-gold/70 text-sm">底池 <span className="text-gold font-bold">{room.pot}</span></span>
-          {message && <span className="text-yellow-300 text-xs max-w-[160px] truncate">{message}</span>}
-          <button onClick={() => setShowScoreboard(s => !s)}
-            className="text-xs border border-gold/40 text-gold/70 hover:text-gold px-2 py-0.5 rounded-lg">
+    <div style={{ position: 'fixed', inset: 0, background: '#000', display: 'flex', justifyContent: 'center' }}>
+      <div style={{ position: 'relative', width: '100%', maxWidth: 480, height: '100%', overflow: 'hidden', color: '#fff', fontFamily: 'system-ui,-apple-system,sans-serif' }}>
+
+        {/* ── Background image (top 73%) ── */}
+        <img src="/poker-table-bg.jpg" alt="" style={{
+          position: 'absolute', top: 0, left: 0,
+          width: '100%', height: '73%',
+          objectFit: 'cover', objectPosition: 'top center',
+          zIndex: 0,
+        }} />
+        {/* Gradient fade */}
+        <div style={{
+          position: 'absolute', left: 0, right: 0, top: '60%', height: '18%',
+          background: 'linear-gradient(to bottom, transparent, #000)',
+          zIndex: 1, pointerEvents: 'none',
+        }} />
+
+        {/* ── Top bar ── */}
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, height: 44, zIndex: 30,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '0 14px',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.72), transparent)',
+        }}>
+          <button onClick={() => navigate('/')} style={{ color: 'rgba(240,208,96,0.85)', fontSize: 13, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+            ← 大厅
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <span style={{ color: '#f0d060', fontFamily: 'monospace', fontWeight: 700, letterSpacing: 3, fontSize: 14 }}>{roomId}</span>
+            <span style={{ background: 'rgba(240,208,96,0.18)', color: '#f0d060', fontSize: 11, padding: '2px 8px', borderRadius: 10 }}>
+              {PHASE_LABELS[room.phase]}
+            </span>
+          </div>
+          <button onClick={() => setShowScoreboard(s => !s)} style={{ color: 'rgba(240,208,96,0.8)', fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
             📊
           </button>
         </div>
-      </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 flex flex-col">
-          {room.phase === 'waiting' ? (
-            <WaitingRoom room={room} isHost={isHost} mySocketId={mySocketId} roomId={roomId} />
-          ) : (
-            <div className="flex-1 flex flex-col relative">
-              {/* 圆桌区（结算时依然可见） */}
-              <div className="flex-1 relative" style={{ minHeight: 400 }}>
-                <PokerTable
-                  room={room}
-                  mySocketId={mySocketId}
-                  timerInfo={timerInfo}
-                  countdown={countdown}
-                  isMyTurn={isMyTurn}
-                  onExtendTime={() => socket.emit('extendTime', { roomId })}
-                />
+        {/* ── Table elements (hidden during waiting) ── */}
+        {room.phase !== 'waiting' && (
+          <>
+            {/* Pot */}
+            {room.pot > 0 && (
+              <div style={{
+                position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)',
+                zIndex: 5, display: 'flex', alignItems: 'center', gap: 6,
+                background: 'rgba(0,0,0,0.68)', borderRadius: 20, padding: '5px 14px',
+                border: '1px solid rgba(212,175,55,0.45)',
+                boxShadow: '0 2px 10px rgba(0,0,0,0.6)',
+              }}>
+                <span style={{ fontSize: 15 }}>🪙</span>
+                <span style={{ color: '#f0d060', fontWeight: 700, fontSize: 14 }}>底池 {room.pot}</span>
               </div>
+            )}
 
-              {/* 底部行动区 */}
-              <div className="flex-shrink-0 px-3 pb-3 space-y-2">
-                {/* 轮次提示 */}
-                <div className="text-center">
-                  {(() => {
-                    const curPlayer = room.players[room.currentTurnIndex];
-                    const allInRunout = room.players.filter(p => !p.folded && p.chips > 0).length === 0;
-                    if (room.phase === 'showdown' || room.phase === 'waiting') return null;
-                    if (isMyTurn && me && !me.folded && me.chips > 0) {
-                      return <span className="text-gold font-bold animate-pulse">🎯 该你行动了！</span>;
-                    }
-                    if (allInRunout) {
-                      return <span className="text-yellow-400 text-sm animate-pulse">♠ 自动开牌中...</span>;
-                    }
-                    if (curPlayer && curPlayer.chips > 0) {
-                      return (
-                        <span className="text-white/50 text-sm">
-                          等待 {curPlayer.nickname}... {timerInfo && countdown > 0 ? `${countdown}s` : ''}
-                        </span>
-                      );
-                    }
-                    return null;
-                  })()}
+            {/* Community cards */}
+            <div style={{
+              position: 'absolute', top: '46%', left: '50%', transform: 'translate(-50%, -50%)',
+              zIndex: 5,
+            }}>
+              <CommunityCards cards={room.communityCards} />
+            </div>
+
+            {/* Player avatars */}
+            <PokerTable
+              room={room}
+              mySocketId={mySocketId}
+              timerInfo={timerInfo}
+              countdown={countdown}
+              isMyTurn={isMyTurn}
+              onExtendTime={() => socket.emit('extendTime', { roomId })}
+            />
+
+            {/* My hole cards */}
+            {hasMyCards && (
+              <div style={{
+                position: 'absolute', bottom: 90, left: '50%', transform: 'translateX(-50%)',
+                zIndex: 15, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
+                pointerEvents: 'none',
+              }}>
+                {myHandHint && (
+                  <div style={{
+                    background: 'rgba(0,0,0,0.82)', borderRadius: 12,
+                    padding: '3px 12px', border: '1px solid rgba(212,175,55,0.4)',
+                    color: '#f0d060', fontSize: 12, fontWeight: 700,
+                  }}>
+                    💡 {myHandHint}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {me.holeCards.map((card, i) => (
+                    <Card key={i} card={card} size="my" />
+                  ))}
                 </div>
-
-                {error && <div className="text-red-400 text-sm text-center bg-red-400/10 rounded-lg py-1.5">{error}</div>}
-                {rebuyError && <div className="text-orange-400 text-sm text-center bg-orange-400/10 rounded-lg py-1.5">{rebuyError}</div>}
-
-                {/* 行动按钮（3个主按钮） */}
-                {showActionButtons && (
-                  <div className="max-w-lg mx-auto space-y-2">
-                    <div className="grid grid-cols-3 gap-2">
-                      <button onClick={() => sendAction('fold')}
-                        className="bg-red-800 hover:bg-red-700 font-bold py-3 rounded-xl transition-colors text-sm">
-                        弃牌
-                      </button>
-                      <button
-                        onClick={() => canCheck ? sendAction('check') : sendAction('call')}
-                        className="bg-green-700 hover:bg-green-600 font-bold py-3 rounded-xl transition-colors text-sm">
-                        {canCheck ? '过牌' : me && me.chips < toCall
-                          ? `ALL-IN (${me.chips})`
-                          : `跟注 ${toCall}`}
-                      </button>
-                      <button
-                        onClick={() => setShowRaise(r => !r)}
-                        disabled={!canRaise || me.chips <= toCall}
-                        className={`font-bold py-3 rounded-xl transition-colors text-sm ${showRaise ? 'bg-blue-600' : 'bg-blue-800 hover:bg-blue-700'} disabled:opacity-40`}>
-                        加注
-                      </button>
-                    </div>
-
-                    {/* 加注面板 */}
-                    {showRaise && canRaise && (
-                      <div className="bg-felt rounded-xl border border-gold/20 p-3 space-y-2">
-                        <div className="flex justify-between text-xs text-white/50">
-                          <span>加注至</span>
-                          <span className="text-gold font-bold">
-                            {actualRaise}
-                            <span className="text-white/40 font-normal"> (花费 {raiseCost})</span>
-                          </span>
-                        </div>
-                        <input type="range" min={minRaise} max={maxRaise} value={actualRaise}
-                          onChange={e => setRaiseAmount(Number(e.target.value))}
-                          className="w-full accent-yellow-500" />
-                        <div className="flex gap-2">
-                          {[2, 3, 4].map(m => {
-                            const v = room.betSize * m;
-                            return (v > room.betSize && v <= maxRaise)
-                              ? <button key={m} onClick={() => setRaiseAmount(v)}
-                                  className="text-xs border border-gold/40 text-gold/70 hover:text-gold px-2 py-1 rounded-lg transition-colors">
-                                  {m}x
-                                </button>
-                              : null;
-                          })}
-                          <button onClick={() => setRaiseAmount(maxRaise)}
-                            className="text-xs border border-yellow-500/60 text-yellow-400 hover:bg-yellow-500/20 px-2 py-1 rounded-lg transition-colors">
-                            全押
-                          </button>
-                          <button onClick={() => sendAction('raise', actualRaise)} disabled={raiseCost > me.chips}
-                            className="flex-1 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 font-bold py-1.5 rounded-xl text-sm transition-colors">
-                            确认加注
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* 补码按钮 */}
-                {showRebuyButton && (
-                  <div className="text-center">
-                    <button onClick={handleRebuy}
-                      className="bg-orange-700 hover:bg-orange-600 text-white font-bold px-6 py-2 rounded-xl transition-colors text-sm">
-                      💰 补码 {room.settings.initialChips} 筹码
-                      {me?.rebuyCount > 0 && <span className="ml-1 opacity-70">(已补{me.rebuyCount}次)</span>}
-                    </button>
-                  </div>
-                )}
               </div>
+            )}
 
-              {/* 结算弹窗覆盖层（叠在牌桌上方） */}
-              {(room.phase === 'settlement' || settlementData) && (
-                <SettlementScreen
-                  settlementData={settlementData}
-                  room={room}
-                  mySocketId={mySocketId}
-                  settlementCountdown={settlementCountdown}
-                  cardReveals={cardReveals}
-                  myReadyStatus={myReadyStatus}
-                  onReady={sendReady}
-                  onSpectate={sendSpectate}
-                  onRevealCards={sendRevealCards}
-                  onQueueNextHand={sendQueueNextHand}
-                />
+            {/* Floating message */}
+            {message && (
+              <div style={{
+                position: 'absolute',
+                bottom: hasMyCards ? 180 : 96,
+                left: '50%', transform: 'translateX(-50%)',
+                zIndex: 20, whiteSpace: 'nowrap',
+              }}>
+                <div style={{
+                  background: 'rgba(0,0,0,0.78)', borderRadius: 16, padding: '5px 16px',
+                  color: '#fde68a', fontSize: 13, fontWeight: 600,
+                  border: '1px solid rgba(253,230,138,0.25)',
+                }}>
+                  {message}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Raise panel (above action buttons) ── */}
+        {showRaise && showActionButtons && canRaise && (
+          <div style={{
+            position: 'absolute', bottom: 82, left: 0, right: 0, zIndex: 25,
+            background: 'rgba(6,10,22,0.95)', borderTop: '1px solid rgba(255,255,255,0.09)',
+            padding: '10px 14px 8px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>加注至</span>
+              <span style={{ color: '#f0d060', fontWeight: 700, fontSize: 15 }}>
+                {actualRaise}
+                <span style={{ color: 'rgba(255,255,255,0.35)', fontWeight: 400, fontSize: 12 }}> (花费 {raiseCost})</span>
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="range" min={minRaise} max={maxRaise} value={actualRaise}
+                onChange={e => setRaiseAmount(Number(e.target.value))}
+                style={{ flex: 1, accentColor: '#eab308', height: 4 }}
+              />
+              <button onClick={() => setRaiseAmount(Math.min(halfPot || minRaise, maxRaise))} style={presetBtn}>½POT</button>
+              <button onClick={() => setRaiseAmount(Math.min(room.pot || minRaise, maxRaise))} style={presetBtn}>POT</button>
+              <button onClick={() => setRaiseAmount(maxRaise)} style={{ ...presetBtn, borderColor: 'rgba(234,179,8,0.55)', color: '#eab308' }}>全下</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Action area (always at bottom, 82px) ── */}
+        <div style={{
+          position: 'absolute', bottom: 0, left: 0, right: 0, height: 82, zIndex: 30,
+          background: 'rgba(4,7,18,0.94)',
+          borderTop: '1px solid rgba(255,255,255,0.07)',
+          display: 'flex', alignItems: 'center', padding: '0 12px', gap: 10,
+        }}>
+          {showActionButtons ? (
+            <>
+              <button onClick={() => sendAction('fold')} style={{
+                ...actionBtn,
+                background: 'linear-gradient(135deg,#7f1d1d,#991b1b)',
+                boxShadow: '0 4px 14px rgba(127,29,29,0.5)',
+              }}>弃牌</button>
+
+              <button onClick={() => canCheck ? sendAction('check') : sendAction('call')} style={{
+                ...actionBtn, flex: 1.3,
+                background: 'linear-gradient(135deg,#14532d,#166534)',
+                boxShadow: '0 4px 14px rgba(20,83,45,0.5)',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
+              }}>
+                <span>{canCheck ? '过牌' : (me && me.chips < toCall ? 'ALL-IN' : '跟注')}</span>
+                {!canCheck && <span style={{ fontSize: 12, opacity: 0.7 }}>{me && me.chips < toCall ? me.chips : toCall}</span>}
+              </button>
+
+              <button
+                onClick={() => showRaise ? sendAction('raise', actualRaise) : setShowRaise(true)}
+                disabled={!canRaise || (me?.chips ?? 0) <= toCall}
+                style={{
+                  ...actionBtn,
+                  background: showRaise
+                    ? 'linear-gradient(135deg,#1e40af,#2563eb)'
+                    : 'linear-gradient(135deg,#1e3a8a,#1e40af)',
+                  boxShadow: showRaise ? '0 4px 14px rgba(37,99,235,0.7)' : '0 4px 14px rgba(30,58,138,0.45)',
+                  opacity: (!canRaise || (me?.chips ?? 0) <= toCall) ? 0.38 : 1,
+                }}
+              >
+                {showRaise ? '确认' : '加注'}
+              </button>
+            </>
+          ) : (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              {/* Turn indicator */}
+              {room.phase !== 'showdown' && room.phase !== 'waiting' && (() => {
+                const cur = room.players[room.currentTurnIndex];
+                const allInRunout = room.players.filter(p => !p.folded && p.chips > 0).length === 0;
+                if (allInRunout) return <span style={{ color: '#fbbf24', fontSize: 13 }}>♠ 自动开牌中...</span>;
+                if (cur) return <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>等待 {cur.nickname}{timerInfo && countdown > 0 ? ` · ${countdown}s` : ''}</span>;
+                return null;
+              })()}
+
+              {error && <div style={{ color: '#f87171', fontSize: 12, background: 'rgba(248,113,113,0.1)', borderRadius: 8, padding: '3px 12px' }}>{error}</div>}
+              {rebuyError && <div style={{ color: '#fb923c', fontSize: 12, background: 'rgba(251,146,60,0.1)', borderRadius: 8, padding: '3px 12px' }}>{rebuyError}</div>}
+
+              {showRebuyButton && (
+                <button onClick={handleRebuy} style={{
+                  background: 'linear-gradient(135deg,#92400e,#b45309)',
+                  color: '#fff', fontWeight: 700, fontSize: 13,
+                  padding: '8px 22px', borderRadius: 12, border: 'none', cursor: 'pointer',
+                }}>
+                  💰 补码 {room.settings.initialChips}
+                  {(me?.rebuyCount ?? 0) > 0 && <span style={{ opacity: 0.65, fontSize: 11 }}> (已补{me.rebuyCount}次)</span>}
+                </button>
               )}
             </div>
           )}
         </div>
 
-        {showScoreboard && <Scoreboard room={room} mySocketId={mySocketId} />}
+        {/* ── Overlays ── */}
+        {room.phase === 'waiting' && (
+          <WaitingRoom room={room} isHost={isHost} mySocketId={mySocketId} roomId={roomId} />
+        )}
+
+        {showScoreboard && (
+          <Scoreboard room={room} mySocketId={mySocketId} onClose={() => setShowScoreboard(false)} />
+        )}
+
+        {(room.phase === 'settlement' || settlementData) && (
+          <SettlementScreen
+            settlementData={settlementData}
+            room={room}
+            mySocketId={mySocketId}
+            settlementCountdown={settlementCountdown}
+            cardReveals={cardReveals}
+            myReadyStatus={myReadyStatus}
+            onReady={sendReady}
+            onSpectate={sendSpectate}
+            onRevealCards={sendRevealCards}
+            onQueueNextHand={sendQueueNextHand}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-// ── 圆桌 ─────────────────────────────────────────────────────
+// Shared styles
+const actionBtn = {
+  flex: 1, height: 56, borderRadius: 14, border: 'none', cursor: 'pointer',
+  color: '#fff', fontWeight: 700, fontSize: 16, transition: 'opacity 0.15s',
+};
+
+const presetBtn = {
+  background: 'rgba(255,255,255,0.06)',
+  border: '1px solid rgba(255,255,255,0.18)',
+  borderRadius: 8, color: '#e2e8f0', fontSize: 11,
+  padding: '5px 8px', cursor: 'pointer', whiteSpace: 'nowrap',
+};
+
+// ── Poker table: only player avatars, no CSS oval ──────────────
 function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtendTime }) {
   const n = room.players.length;
   const myIdx = room.players.findIndex(p => p.socketId === mySocketId);
@@ -481,267 +559,225 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
     : room.players;
 
   return (
-    <div className="relative w-full h-full" style={{ minHeight: 400 }}>
-      {/* 椭圆桌面 */}
-      <div className="absolute" style={{
-        left: '18%', top: '8%', width: '64%', height: '70%',
-        borderRadius: '50%',
-        background: 'radial-gradient(ellipse at center, #2a7a4e 60%, #1a5c38 100%)',
-        border: '4px solid #92651a',
-        boxShadow: '0 0 40px rgba(0,0,0,0.5), inset 0 0 30px rgba(0,0,0,0.3)',
-      }}>
-        {/* 公共牌 + 底池 */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-          <CommunityCards cards={room.communityCards} />
-          {room.pot > 0 && (
-            <div className="text-yellow-300 text-sm font-bold bg-black/30 px-3 py-0.5 rounded-full">
-              底池: {room.pot}
-            </div>
-          )}
-          {timerInfo?.hasTimeBank && isMyTurn && countdown > 0 && (
-            <button onClick={onExtendTime}
-              className="text-xs text-gold border border-gold/50 rounded px-1.5 hover:bg-gold/20">
-              +时
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* 玩家座位 */}
+    <div style={{ position: 'absolute', inset: 0, zIndex: 3 }}>
       {orderedPlayers.map((player, seatPos) => {
         const pos = SEAT_POS[seatPos] || { x: 50, y: 50 };
-        const origIdx = (myIdx + seatPos) % n;
+        const origIdx = myIdx >= 0 ? (myIdx + seatPos) % n : seatPos;
         const isThisPlayersTurn = room.currentTurnIndex === origIdx;
         return (
           <AvatarTimer
             key={player.socketId}
             player={player}
-            seatPos={seatPos}
-            posStyle={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)' }}
-            isCurrentTurn={isThisPlayersTurn}
             isMe={player.socketId === mySocketId}
+            posStyle={{
+              position: 'absolute',
+              left: `${pos.x}%`, top: `${pos.y}%`,
+              transform: 'translate(-50%, -50%)',
+            }}
+            isCurrentTurn={isThisPlayersTurn}
             posLabel={room.phase !== 'waiting' ? getPositionLabel(origIdx, room.dealerIndex ?? 0, n) : null}
             avatarIdx={player.seatIndex % AVATARS.length}
             timerInfo={timerInfo}
             countdown={isThisPlayersTurn ? countdown : 0}
-            communityCards={room.communityCards}
+            isMyTurn={isMyTurn}
+            onExtendTime={onExtendTime}
           />
         );
       })}
-
     </div>
   );
 }
 
-// ── 手牌提示（Task 9 将实现） ────────────────────────────────
-function HandHint({ holeCards, communityCards }) {
-  const hint = useMemo(() => {
-    if (!holeCards || holeCards.length < 2) return null;
-    try {
-      const allRaw = [...holeCards, ...communityCards];
-      const all = allRaw
-        .map(c => convertCardCode(typeof c === 'string' ? c : c?.code))
-        .filter(Boolean);
-      if (all.length < 2) return null;
-      const hand = Hand.solve(all);
-      return HAND_NAME_MAP[hand.name] || hand.name;
-    } catch (e) { return null; }
-  }, [holeCards, communityCards]);
-
-  if (!hint) return null;
-
-  return (
-    <div className="mt-0.5 px-2 py-0.5 bg-black/60 rounded text-xs text-yellow-300 border border-yellow-500/20 text-center max-w-[80px]">
-      💡 {hint}
-    </div>
-  );
-}
-
-// ── 头像倒计时 ───────────────────────────────────────────────
-function AvatarTimer({ player, seatPos, posStyle, isCurrentTurn, isMe, posLabel, avatarIdx, timerInfo, countdown, communityCards }) {
+// ── Avatar with timer ring ─────────────────────────────────────
+function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime }) {
   const CIRCUMFERENCE = 2 * Math.PI * 20;
   const duration = timerInfo?.duration || 20;
-  const progress = isCurrentTurn && countdown > 0 ? countdown / duration : 0;
-  const dashOffset = CIRCUMFERENCE * (1 - progress);
-  const ringColor = countdown > duration * 0.5 ? '#4ade80'
-    : countdown > duration * 0.25 ? '#facc15'
-    : '#ef4444';
+  const dashOffset = CIRCUMFERENCE * (1 - (isCurrentTurn && countdown > 0 ? countdown / duration : 0));
+  const ringColor = countdown > duration * 0.5 ? '#4ade80' : countdown > duration * 0.25 ? '#facc15' : '#ef4444';
   const isLowTime = isCurrentTurn && countdown > 0 && countdown <= duration * 0.25;
   const isGrayed = player.disconnected || player.status === 'spectating';
+  const isFolded = player.folded && player.status !== 'spectating';
+  const sz = isMe ? 46 : 40;
 
   return (
-    <div className="absolute" style={posStyle}>
-      <div
-        className={`flex flex-col items-center gap-0.5 ${isCurrentTurn ? 'filter drop-shadow-[0_0_10px_rgba(212,175,55,0.9)]' : ''}`}
-        style={{ minWidth: 80, opacity: isGrayed ? 0.35 : 1, filter: isGrayed ? 'grayscale(1)' : 'none' }}
-      >
-        {/* 头像容器 + SVG 圆环 */}
-        <div className="relative" style={{ width: 48, height: 48 }}>
+    <div style={posStyle}>
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+        opacity: isGrayed ? 0.32 : 1,
+        filter: isGrayed ? 'grayscale(1)' : isCurrentTurn ? 'drop-shadow(0 0 10px rgba(212,175,55,0.85))' : 'none',
+      }}>
+        {/* Avatar + ring */}
+        <div style={{ position: 'relative', width: sz, height: sz }}>
           <div style={{
-            transform: isCurrentTurn ? 'scale(1.25)' : 'scale(1)',
+            width: sz, height: sz, borderRadius: '50%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: isMe ? 22 : 18,
+            background: isMe ? '#1e3a6e' : '#252525',
+            border: `2px solid ${isCurrentTurn ? '#f0d060' : isMe ? '#3b82f6' : 'rgba(255,255,255,0.18)'}`,
+            transform: isCurrentTurn ? 'scale(1.18)' : 'scale(1)',
             transition: 'transform 0.2s ease',
-            width: '100%', height: '100%',
+            opacity: isFolded ? 0.38 : 1,
           }}>
-            <div
-              className={`w-full h-full rounded-full flex items-center justify-center text-xl border-2 ${isCurrentTurn ? 'border-gold' : isMe ? 'border-blue-400' : 'border-white/20'} ${player.folded && player.status !== 'spectating' ? 'opacity-40' : ''}`}
-              style={{ background: isMe ? '#1e3a6e' : '#2d2d2d' }}
-            >
-              {AVATARS[avatarIdx]}
-            </div>
+            {AVATARS[avatarIdx]}
           </div>
 
-          {/* SVG 倒计时圆环 */}
           {isCurrentTurn && timerInfo && countdown > 0 && (
-            <div className={isLowTime ? 'animate-pulse' : ''} style={{ position: 'absolute', inset: -5, width: 58, height: 58, pointerEvents: 'none' }}>
-              <svg viewBox="0 0 48 48" width="58" height="58">
-                <circle cx="24" cy="24" r="20" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="3" />
+            <div style={{
+              position: 'absolute', inset: -6, width: sz + 12, height: sz + 12,
+              pointerEvents: 'none',
+              animation: isLowTime ? 'pulse 0.5s infinite alternate' : 'none',
+            }}>
+              <svg viewBox="0 0 48 48" width={sz + 12} height={sz + 12}>
+                <circle cx="24" cy="24" r="20" fill="none" stroke="rgba(255,255,255,0.13)" strokeWidth="3" />
                 <circle
-                  cx="24" cy="24" r="20"
-                  fill="none"
-                  stroke={ringColor}
-                  strokeWidth="3.5"
-                  strokeDasharray={CIRCUMFERENCE}
-                  strokeDashoffset={dashOffset}
-                  strokeLinecap="round"
-                  transform="rotate(-90 24 24)"
+                  cx="24" cy="24" r="20" fill="none"
+                  stroke={ringColor} strokeWidth="3.5"
+                  strokeDasharray={CIRCUMFERENCE} strokeDashoffset={dashOffset}
+                  strokeLinecap="round" transform="rotate(-90 24 24)"
                   style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.5s ease' }}
                 />
               </svg>
             </div>
           )}
 
-          {/* 位置标签 */}
           {posLabel && (
-            <span className={`absolute -top-1 -right-1 font-bold px-1 rounded text-black z-10 ${
-              posLabel === 'D' ? 'bg-white' : posLabel === 'SB' ? 'bg-blue-300' : posLabel === 'BB' ? 'bg-yellow-400' : 'bg-gray-300'
-            }`} style={{ fontSize: 9 }}>
-              {posLabel}
-            </span>
+            <span style={{
+              position: 'absolute', top: -2, right: -3,
+              fontWeight: 700, fontSize: 9, padding: '1px 4px', borderRadius: 4,
+              color: '#000', zIndex: 2,
+              background: posLabel === 'D' ? '#fff' : posLabel === 'SB' ? '#93c5fd' : posLabel === 'BB' ? '#fbbf24' : '#d1d5db',
+            }}>{posLabel}</span>
           )}
         </div>
 
-        {/* 名字 + 筹码信息 */}
-        <div className={`text-center ${player.folded && player.status !== 'spectating' ? 'opacity-40' : ''}`}>
-          <div className="text-xs font-medium leading-tight truncate" style={{ maxWidth: 80 }}>
-            {player.nickname}{isMe ? ' (我)' : ''}
+        {/* Name / chip info */}
+        <div style={{ textAlign: 'center', maxWidth: isMe ? 80 : 68 }}>
+          <div style={{
+            fontSize: isMe ? 11 : 10, fontWeight: 600,
+            color: isFolded ? 'rgba(255,255,255,0.28)' : '#fff',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            textShadow: '0 1px 4px rgba(0,0,0,0.95)',
+          }}>{player.nickname}</div>
+          <div style={{ fontSize: isMe ? 11 : 10, color: '#f0d060', fontWeight: 700, textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}>
+            {player.chips}
           </div>
-          <div className="text-gold text-xs font-bold">{player.chips}</div>
-          {player.bet > 0 && <div className="text-yellow-300 text-xs">注:{player.bet}</div>}
-          {player.status === 'allin' && !player.folded && <span className="text-yellow-400 text-xs font-bold">ALL-IN</span>}
-          {player.folded && player.status !== 'spectating' && <span className="text-red-400 text-xs">弃牌</span>}
-          {player.status === 'spectating' && <span className="text-white/40 text-xs">👁 观战</span>}
-          {player.disconnected && player.status !== 'spectating' && <span className="text-white/40 text-xs">📡 断线</span>}
+          {player.bet > 0 && (
+            <div style={{ fontSize: 9, color: '#fde68a', textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}>注:{player.bet}</div>
+          )}
+          {player.status === 'allin' && !isFolded && <div style={{ fontSize: 9, color: '#fbbf24', fontWeight: 700 }}>ALL-IN</div>}
+          {isFolded && <div style={{ fontSize: 9, color: '#f87171' }}>弃牌</div>}
+          {player.status === 'spectating' && <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.38)' }}>👁</div>}
+          {player.disconnected && player.status !== 'spectating' && <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.38)' }}>断线</div>}
         </div>
 
-        {/* 手牌 + 牌型提示（仅自己可见） */}
-        {seatPos === 0 && isMe ? (
-          <>
-            {(player.holeCards || []).length > 0 && (
-              <div className="flex gap-1 mt-1">
-                {player.holeCards.map((card, i) => <Card key={i} card={card} size="md" />)}
-              </div>
-            )}
-            <HandHint holeCards={player.holeCards || []} communityCards={communityCards || []} />
-          </>
-        ) : (
-          (player.holeCards || []).length > 0 && (
-            <div className="flex gap-0.5 mt-0.5">
-              {player.holeCards.map((card, i) => <Card key={i} card={card} size="sm" />)}
-            </div>
-          )
+        {isMe && isMyTurn && isCurrentTurn && timerInfo?.hasTimeBank && countdown > 0 && (
+          <button onClick={onExtendTime} style={{
+            fontSize: 10, color: '#f0d060', border: '1px solid rgba(240,208,96,0.4)',
+            background: 'rgba(0,0,0,0.55)', borderRadius: 6, padding: '2px 7px', cursor: 'pointer',
+          }}>+时</button>
         )}
       </div>
     </div>
   );
 }
 
-// ── 记分牌 ───────────────────────────────────────────────────
-function Scoreboard({ room, mySocketId }) {
+// ── Scoreboard overlay ─────────────────────────────────────────
+function Scoreboard({ room, mySocketId, onClose }) {
   const sorted = [...room.players].sort((a, b) => b.chips - a.chips);
   return (
-    <div className="w-44 bg-felt border-l border-gold/20 flex flex-col flex-shrink-0">
-      <div className="px-3 py-2 border-b border-gold/20 text-center">
-        <p className="text-gold text-sm font-bold">📊 记分牌</p>
-      </div>
-      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
-        {sorted.map((p, rank) => {
-          const totalProfit = p.chips
-            - room.settings.initialChips
-            - (p.rebuyCount || 0) * room.settings.initialChips;
-          return (
-            <div key={p.socketId}
-              className={`rounded-lg px-2 py-1.5 flex items-center justify-between text-xs ${p.socketId === mySocketId ? 'bg-blue-900/40 border border-blue-500/30' : 'bg-felt-dark/60'}`}>
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className={`font-bold flex-shrink-0 ${rank === 0 ? 'text-gold' : 'text-white/40'}`}>#{rank + 1}</span>
-                <span className="truncate">{p.nickname}</span>
+    <div style={{
+      position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.86)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+    }} onClick={onClose}>
+      <div style={{
+        background: '#0d1829', borderRadius: 20, padding: 20,
+        border: '1px solid rgba(240,208,96,0.22)', width: '100%', maxWidth: 340,
+        maxHeight: '80vh', overflow: 'auto',
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <h3 style={{ color: '#f0d060', fontWeight: 700, fontSize: 18, margin: 0 }}>📊 记分牌</h3>
+          <button onClick={onClose} style={{ color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {sorted.map((p, rank) => {
+            const totalProfit = p.chips - room.settings.initialChips - (p.rebuyCount || 0) * room.settings.initialChips;
+            return (
+              <div key={p.socketId} style={{
+                borderRadius: 13, padding: '10px 14px',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                background: p.socketId === mySocketId ? 'rgba(59,130,246,0.14)' : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${p.socketId === mySocketId ? 'rgba(59,130,246,0.3)' : 'rgba(255,255,255,0.06)'}`,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <span style={{ fontWeight: 700, color: rank === 0 ? '#f0d060' : 'rgba(255,255,255,0.35)', fontSize: 14, flexShrink: 0 }}>#{rank + 1}</span>
+                  <span style={{ fontSize: 16, flexShrink: 0 }}>{AVATARS[p.seatIndex % AVATARS.length]}</span>
+                  <span style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nickname}</span>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ color: '#f0d060', fontWeight: 700, fontSize: 15 }}>{p.chips}</div>
+                  {totalProfit !== 0 && <div style={{ fontSize: 11, color: totalProfit > 0 ? '#4ade80' : '#f87171' }}>{totalProfit > 0 ? `+${totalProfit}` : totalProfit}</div>}
+                  {(p.rebuyCount || 0) > 0 && <div style={{ fontSize: 10, color: '#fb923c' }}>补{p.rebuyCount}次</div>}
+                </div>
               </div>
-              <div className="text-right flex-shrink-0">
-                <div className="text-gold font-bold">{p.chips}</div>
-                {totalProfit !== 0 && (
-                  <div className={totalProfit > 0 ? 'text-green-400' : 'text-red-400'} style={{ fontSize: 9 }}>
-                    {totalProfit > 0 ? `+${totalProfit}` : totalProfit}
-                  </div>
-                )}
-                {(p.rebuyCount || 0) > 0 && (
-                  <div className="text-orange-300" style={{ fontSize: 9 }}>补{p.rebuyCount}次</div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="px-3 py-2 border-t border-gold/20 text-xs text-white/30 text-center">
-        大盲 {(room.settings?.smallBlind || 0) * 2} | 局#{(room.dealerIndex ?? 0) + 1}
+            );
+          })}
+        </div>
+        <div style={{ marginTop: 14, color: 'rgba(255,255,255,0.22)', fontSize: 11, textAlign: 'center' }}>
+          大盲 {(room.settings?.smallBlind || 0) * 2} | 局#{(room.dealerIndex ?? 0) + 1}
+        </div>
       </div>
     </div>
   );
 }
 
-// ── 结算弹窗（覆盖在牌桌上方）────────────────────────────────
-function SettlementScreen({
-  settlementData, room, mySocketId, settlementCountdown,
-  cardReveals, myReadyStatus, onReady, onSpectate, onRevealCards, onQueueNextHand
-}) {
+// ── Settlement overlay ─────────────────────────────────────────
+function SettlementScreen({ settlementData, room, mySocketId, settlementCountdown, cardReveals, myReadyStatus, onReady, onSpectate, onRevealCards, onQueueNextHand }) {
   const { results = [] } = settlementData || {};
   const hasRevealed = !!cardReveals[mySocketId];
 
   return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center p-3"
-      style={{ background: 'rgba(0,0,0,0.72)' }}>
-      <div className="bg-felt rounded-2xl p-4 border border-gold/30 w-full max-w-sm space-y-3 overflow-y-auto"
-        style={{ maxHeight: '90vh' }}>
-        <h2 className="text-gold font-bold text-xl text-center">🃏 本局结算</h2>
+    <div style={{
+      position: 'absolute', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.8)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: '52px 14px 14px',
+    }}>
+      <div style={{
+        background: '#0d1829', borderRadius: 20, padding: 16,
+        border: '1px solid rgba(240,208,96,0.22)', width: '100%',
+        maxHeight: '100%', overflow: 'auto',
+        display: 'flex', flexDirection: 'column', gap: 11,
+      }}>
+        <h2 style={{ color: '#f0d060', fontWeight: 700, fontSize: 20, textAlign: 'center', margin: 0 }}>🃏 本局结算</h2>
 
-        {/* 胜负结果 */}
-        <div className="space-y-2">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
           {results.map(r => {
             const revealedCards = cardReveals[r.socketId] || r.holeCards || [];
             const player = room.players.find(p => p.socketId === r.socketId);
             return (
-              <div key={r.socketId}
-                className={`rounded-xl px-3 py-2 flex items-center justify-between gap-2 ${r.delta > 0 ? 'bg-green-900/40 border border-green-500/30' : 'bg-felt-dark/60'}`}>
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-lg flex-shrink-0">
-                    {AVATARS[(player?.seatIndex || 0) % AVATARS.length]}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">
+              <div key={r.socketId} style={{
+                borderRadius: 14, padding: '10px 12px',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                background: r.delta > 0 ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${r.delta > 0 ? 'rgba(34,197,94,0.28)' : 'rgba(255,255,255,0.06)'}`,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <span style={{ fontSize: 20, flexShrink: 0 }}>{AVATARS[(player?.seatIndex || 0) % AVATARS.length]}</span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {r.nickname}{r.socketId === mySocketId ? ' (我)' : ''}
                     </div>
-                    {r.handName && (
-                      <div className="text-xs text-white/40">{HAND_NAME_MAP[r.handName] || r.handName}</div>
-                    )}
+                    {r.handName && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.38)' }}>{HAND_NAME_MAP[r.handName] || r.handName}</div>}
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <div className="flex gap-0.5">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
+                  <div style={{ display: 'flex', gap: 3 }}>
                     {revealedCards.map((card, i) =>
                       card === 'hidden'
-                        ? <div key={i} className="w-7 h-10 bg-blue-900 border border-blue-500/40 rounded flex items-center justify-center text-white/30 text-sm">?</div>
+                        ? <div key={i} style={{ width: 26, height: 38, background: '#1e3a6e', border: '1px solid rgba(59,130,246,0.35)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.28)', fontSize: 13 }}>?</div>
                         : <Card key={i} card={card} size="sm" />
                     )}
                   </div>
-                  <span className={`font-bold text-sm w-12 text-right ${r.delta > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  <span style={{ fontWeight: 700, fontSize: 14, width: 46, textAlign: 'right', color: r.delta > 0 ? '#4ade80' : '#f87171' }}>
                     {r.delta > 0 ? `+${r.delta}` : r.delta}
                   </span>
                 </div>
@@ -750,66 +786,45 @@ function SettlementScreen({
           })}
         </div>
 
-        {/* 亮牌按钮 */}
-        {!hasRevealed ? (
-          <button onClick={onRevealCards}
-            className="w-full border border-gold/40 text-gold hover:bg-gold/10 font-medium py-2 rounded-xl text-sm transition-colors">
-            亮牌 🂠
-          </button>
-        ) : (
-          <div className="text-center text-white/40 text-xs">已亮牌</div>
-        )}
+        {!hasRevealed
+          ? <button onClick={onRevealCards} style={{ width: '100%', padding: '10px 0', borderRadius: 14, border: '1px solid rgba(240,208,96,0.38)', background: 'none', color: '#f0d060', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>亮牌 🂠</button>
+          : <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>已亮牌</div>
+        }
 
-        {/* 玩家状态列表 */}
-        <div className="space-y-1">
-          <p className="text-white/40 text-xs text-center">玩家状态</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, textAlign: 'center', margin: 0 }}>玩家状态</p>
           {room.players.map(p => {
-            const badge = p.readyStatus === 'ready' ? '🟢 准备'
-              : p.readyStatus === 'spectating' ? '👁 观战'
-              : p.readyStatus === 'queued' ? '🟡 下局参与'
-              : '⏳ 待选';
+            const badge = p.readyStatus === 'ready' ? '🟢 准备' : p.readyStatus === 'spectating' ? '👁 观战' : p.readyStatus === 'queued' ? '🟡 下局参与' : '⏳ 待选';
             return (
-              <div key={p.socketId} className="flex items-center justify-between text-xs px-2">
-                <span className="text-white/70">{p.nickname}{p.socketId === mySocketId ? ' (我)' : ''}</span>
-                <span className="text-white/50">{badge}</span>
+              <div key={p.socketId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 6px' }}>
+                <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>{p.nickname}{p.socketId === mySocketId ? ' (我)' : ''}</span>
+                <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>{badge}</span>
               </div>
             );
           })}
         </div>
 
-        {/* 60秒倒计时进度条 */}
         {settlementCountdown > 0 && (
-          <div className="space-y-1">
-            <div className="h-1 bg-black/30 rounded-full overflow-hidden">
-              <div className="h-full bg-gold transition-all duration-1000"
-                style={{ width: `${(settlementCountdown / 60) * 100}%` }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ height: 3, background: 'rgba(0,0,0,0.3)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ height: '100%', background: '#f0d060', transition: 'width 1s linear', width: `${(settlementCountdown / 60) * 100}%` }} />
             </div>
-            <p className="text-white/30 text-xs text-center">{settlementCountdown}s 后未选视为观战</p>
+            <p style={{ color: 'rgba(255,255,255,0.28)', fontSize: 11, textAlign: 'center', margin: 0 }}>{settlementCountdown}s 后未选视为观战</p>
           </div>
         )}
 
-        {/* 行动按钮 */}
         {myReadyStatus === 'pending' && (
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={onReady}
-              className="bg-green-700 hover:bg-green-600 font-bold py-3 rounded-xl transition-colors text-sm">
-              ✅ 准备
-            </button>
-            <button onClick={onSpectate}
-              className="bg-gray-700 hover:bg-gray-600 font-bold py-3 rounded-xl transition-colors text-sm">
-              👁 观战
-            </button>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <button onClick={onReady} style={{ background: 'linear-gradient(135deg,#14532d,#166534)', color: '#fff', fontWeight: 700, padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer', fontSize: 15 }}>✅ 准备</button>
+            <button onClick={onSpectate} style={{ background: 'rgba(255,255,255,0.07)', color: '#fff', fontWeight: 700, padding: '14px 0', borderRadius: 14, border: '1px solid rgba(255,255,255,0.13)', cursor: 'pointer', fontSize: 15 }}>👁 观战</button>
           </div>
         )}
         {myReadyStatus === 'spectating' && (
-          <button onClick={onQueueNextHand}
-            className="w-full border border-gold/40 text-gold hover:bg-gold/10 font-bold py-3 rounded-xl transition-colors text-sm">
-            下一局参与
-          </button>
+          <button onClick={onQueueNextHand} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: '1px solid rgba(240,208,96,0.38)', background: 'none', color: '#f0d060', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>下一局参与</button>
         )}
         {(myReadyStatus === 'ready' || myReadyStatus === 'queued') && (
-          <div className="text-center py-1">
-            <span className="text-green-400 font-bold text-sm">
+          <div style={{ textAlign: 'center', padding: '4px 0' }}>
+            <span style={{ color: myReadyStatus === 'ready' ? '#4ade80' : '#fbbf24', fontWeight: 700, fontSize: 14 }}>
               {myReadyStatus === 'ready' ? '✅ 已准备，等待其他玩家...' : '🟡 下局将参与'}
             </span>
           </div>
@@ -819,43 +834,69 @@ function SettlementScreen({
   );
 }
 
-// ── 等待室 ───────────────────────────────────────────────────
+// ── Waiting room overlay ───────────────────────────────────────
 function WaitingRoom({ room, isHost, mySocketId, roomId }) {
   return (
-    <div className="flex-1 flex items-center justify-center p-4">
-      <div className="bg-felt rounded-2xl p-6 border border-white/10 w-full max-w-sm">
-        <div className="text-center mb-5">
-          <p className="text-gold/50 text-sm mb-1">分享房间号给朋友</p>
-          <p className="text-4xl font-bold text-gold tracking-[0.2em] font-mono">{room.roomId}</p>
+    <div style={{
+      position: 'absolute', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.92)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+    }}>
+      <div style={{ background: '#0d1829', borderRadius: 22, padding: 24, border: '1px solid rgba(255,255,255,0.08)', width: '100%', maxWidth: 360 }}>
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <p style={{ color: 'rgba(240,208,96,0.5)', fontSize: 13, margin: '0 0 6px' }}>分享房间号给朋友</p>
+          <p style={{ color: '#f0d060', fontSize: 40, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '0.2em', margin: 0 }}>{room.roomId}</p>
         </div>
-        <div className="space-y-1.5 mb-5">
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
           {room.players.map(p => (
-            <div key={p.socketId} className="flex items-center justify-between bg-felt-dark rounded-xl px-3 py-2">
-              <div className="flex items-center gap-2">
-                <span>{AVATARS[p.seatIndex % AVATARS.length]}</span>
-                <span className="text-sm">{p.nickname}</span>
-                {p.socketId === mySocketId && <span className="text-gold text-xs">(我)</span>}
+            <div key={p.socketId} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: 'rgba(255,255,255,0.04)', borderRadius: 14, padding: '10px 14px',
+              border: '1px solid rgba(255,255,255,0.06)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 20 }}>{AVATARS[p.seatIndex % AVATARS.length]}</span>
+                <span style={{ fontSize: 14 }}>{p.nickname}</span>
+                {p.socketId === mySocketId && <span style={{ color: '#f0d060', fontSize: 11 }}>(我)</span>}
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-gold/60 text-xs">{p.chips}</span>
-                {p.socketId === room.hostSocketId && <span className="text-xs text-gold bg-gold/20 px-1.5 py-0.5 rounded">房主</span>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: 'rgba(240,208,96,0.55)', fontSize: 12 }}>{p.chips}</span>
+                {p.socketId === room.hostSocketId && <span style={{ fontSize: 11, color: '#f0d060', background: 'rgba(240,208,96,0.14)', padding: '2px 8px', borderRadius: 8 }}>房主</span>}
               </div>
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-3 gap-2 text-xs text-white/50 text-center bg-felt-dark rounded-xl p-3 mb-4">
-          <div>小盲<br /><span className="text-gold font-bold text-sm">{room.settings.smallBlind}</span></div>
-          <div>大盲<br /><span className="text-gold font-bold text-sm">{room.settings.smallBlind * 2}</span></div>
-          <div>初始筹码<br /><span className="text-gold font-bold text-sm">{room.settings.initialChips}</span></div>
+
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+          background: 'rgba(255,255,255,0.04)', borderRadius: 14, padding: 12, marginBottom: 16,
+          textAlign: 'center',
+        }}>
+          {[['小盲', room.settings.smallBlind], ['大盲', room.settings.smallBlind * 2], ['初始筹码', room.settings.initialChips]].map(([label, val]) => (
+            <div key={label}>
+              <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginBottom: 2 }}>{label}</div>
+              <div style={{ color: '#f0d060', fontWeight: 700, fontSize: 16 }}>{val}</div>
+            </div>
+          ))}
         </div>
+
         {isHost ? (
-          <button onClick={() => socket.emit('startGame', { roomId })}
+          <button
+            onClick={() => socket.emit('startGame', { roomId })}
             disabled={room.players.length < 2}
-            className="w-full bg-gold hover:bg-gold-light disabled:opacity-40 text-felt-dark font-bold py-3 rounded-xl transition-colors">
+            style={{
+              width: '100%', padding: '16px 0', borderRadius: 16, border: 'none', cursor: 'pointer',
+              background: room.players.length < 2 ? 'rgba(240,208,96,0.25)' : 'linear-gradient(135deg,#c8950a,#f0d060)',
+              color: '#0a0f1a', fontWeight: 700, fontSize: 16,
+              opacity: room.players.length < 2 ? 0.55 : 1,
+            }}
+          >
             {room.players.length < 2 ? `等待更多玩家 (${room.players.length}/2)` : '开始游戏'}
           </button>
         ) : (
-          <div className="text-center text-white/40 py-2 text-sm">等待房主开始游戏...</div>
+          <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.38)', fontSize: 14, padding: '10px 0' }}>
+            等待房主开始游戏...
+          </div>
         )}
       </div>
     </div>
