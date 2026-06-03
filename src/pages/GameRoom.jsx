@@ -70,17 +70,11 @@ function CommunityCards({ cards }) {
     prevLen.current = newLen;
   }, [cards.length]);
 
-  if (cards.length === 0) return null;
-
   return (
     <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
       {Array.from({ length: 5 }).map((_, i) => {
         const isFlipped = revealed.includes(i);
         const card = cards[i] || null;
-        if (i >= Math.ceil(cards.length / 1) && !card) return null;
-        // only render slots up to the max expected for current street
-        const maxSlots = cards.length <= 3 ? 3 : cards.length;
-        if (i >= maxSlots) return null;
         return (
           <div key={i} style={{ position: 'relative', width: 50, height: 70, perspective: 300, flexShrink: 0 }}>
             <div style={{
@@ -131,6 +125,13 @@ export default function GameRoom() {
 
   const roomRef = useRef(room);
   useEffect(() => { roomRef.current = room; }, [room]);
+
+  // Auto-clear floating messages after 3 s
+  useEffect(() => {
+    if (!message) return;
+    const t = setTimeout(() => setMessage(''), 3000);
+    return () => clearTimeout(t);
+  }, [message]);
 
   const [mySocketId, setMySocketId] = useState(socket.id);
   useEffect(() => {
@@ -300,17 +301,17 @@ export default function GameRoom() {
     <div style={{ position: 'fixed', inset: 0, background: '#000', display: 'flex', justifyContent: 'center' }}>
       <div style={{ position: 'relative', width: '100%', maxWidth: 480, height: '100%', overflow: 'hidden', color: '#fff', fontFamily: 'system-ui,-apple-system,sans-serif' }}>
 
-        {/* ── Background image (top 73%) ── */}
+        {/* ── Background image (full screen) ── */}
         <img src="/poker-table-bg.jpg" alt="" style={{
           position: 'absolute', top: 0, left: 0,
-          width: '100%', height: '73%',
+          width: '100%', height: '100%',
           objectFit: 'cover', objectPosition: 'top center',
           zIndex: 0,
         }} />
-        {/* Gradient fade */}
+        {/* Dark gradient at bottom so action buttons remain readable */}
         <div style={{
-          position: 'absolute', left: 0, right: 0, top: '60%', height: '18%',
-          background: 'linear-gradient(to bottom, transparent, #000)',
+          position: 'absolute', left: 0, right: 0, bottom: 0, height: '38%',
+          background: 'linear-gradient(to bottom, transparent, rgba(0,0,0,0.82))',
           zIndex: 1, pointerEvents: 'none',
         }} />
 
@@ -347,7 +348,7 @@ export default function GameRoom() {
                 border: '1px solid rgba(212,175,55,0.45)',
                 boxShadow: '0 2px 10px rgba(0,0,0,0.6)',
               }}>
-                <span style={{ fontSize: 15 }}>🪙</span>
+                <span style={{ width: 13, height: 13, borderRadius: '50%', background: 'linear-gradient(135deg,#f0d060,#c8950a)', display: 'inline-block', flexShrink: 0, boxShadow: '0 1px 3px rgba(0,0,0,0.5)' }} />
                 <span style={{ color: '#f0d060', fontWeight: 700, fontSize: 14 }}>底池 {room.pot}</span>
               </div>
             )}
@@ -444,7 +445,7 @@ export default function GameRoom() {
         {/* ── Action area (always at bottom, 82px) ── */}
         <div style={{
           position: 'absolute', bottom: 0, left: 0, right: 0, height: 82, zIndex: 30,
-          background: 'rgba(4,7,18,0.94)',
+          background: 'rgba(4,7,18,0.78)',
           borderTop: '1px solid rgba(255,255,255,0.07)',
           display: 'flex', alignItems: 'center', padding: '0 12px', gap: 10,
         }}>
@@ -690,8 +691,8 @@ function Scoreboard({ room, mySocketId, onClose }) {
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }} onClick={onClose}>
       <div style={{
-        background: '#0d1829', borderRadius: 20, padding: 20,
-        border: '1px solid rgba(240,208,96,0.22)', width: '100%', maxWidth: 340,
+        background: '#1a2f4a', borderRadius: 20, padding: 20,
+        border: '1px solid rgba(240,208,96,0.28)', width: '100%', maxWidth: 340,
         maxHeight: '80vh', overflow: 'auto',
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -705,8 +706,8 @@ function Scoreboard({ room, mySocketId, onClose }) {
               <div key={p.socketId} style={{
                 borderRadius: 13, padding: '10px 14px',
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                background: p.socketId === mySocketId ? 'rgba(59,130,246,0.14)' : 'rgba(255,255,255,0.04)',
-                border: `1px solid ${p.socketId === mySocketId ? 'rgba(59,130,246,0.3)' : 'rgba(255,255,255,0.06)'}`,
+                background: p.socketId === mySocketId ? 'rgba(59,130,246,0.22)' : 'rgba(255,255,255,0.08)',
+                border: `1px solid ${p.socketId === mySocketId ? 'rgba(59,130,246,0.4)' : 'rgba(255,255,255,0.12)'}`,
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                   <span style={{ fontWeight: 700, color: rank === 0 ? '#f0d060' : 'rgba(255,255,255,0.35)', fontSize: 14, flexShrink: 0 }}>#{rank + 1}</span>
@@ -742,8 +743,8 @@ function SettlementScreen({ settlementData, room, mySocketId, settlementCountdow
       padding: '52px 14px 14px',
     }}>
       <div style={{
-        background: '#0d1829', borderRadius: 20, padding: 16,
-        border: '1px solid rgba(240,208,96,0.22)', width: '100%',
+        background: '#1a2f4a', borderRadius: 20, padding: 16,
+        border: '1px solid rgba(240,208,96,0.28)', width: '100%',
         maxHeight: '100%', overflow: 'auto',
         display: 'flex', flexDirection: 'column', gap: 11,
       }}>
@@ -757,8 +758,8 @@ function SettlementScreen({ settlementData, room, mySocketId, settlementCountdow
               <div key={r.socketId} style={{
                 borderRadius: 14, padding: '10px 12px',
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                background: r.delta > 0 ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.04)',
-                border: `1px solid ${r.delta > 0 ? 'rgba(34,197,94,0.28)' : 'rgba(255,255,255,0.06)'}`,
+                background: r.delta > 0 ? 'rgba(34,197,94,0.18)' : 'rgba(255,255,255,0.08)',
+                border: `1px solid ${r.delta > 0 ? 'rgba(34,197,94,0.38)' : 'rgba(255,255,255,0.14)'}`,
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                   <span style={{ fontSize: 20, flexShrink: 0 }}>{AVATARS[(player?.seatIndex || 0) % AVATARS.length]}</span>
@@ -841,7 +842,7 @@ function WaitingRoom({ room, isHost, mySocketId, roomId }) {
       position: 'absolute', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.92)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }}>
-      <div style={{ background: '#0d1829', borderRadius: 22, padding: 24, border: '1px solid rgba(255,255,255,0.08)', width: '100%', maxWidth: 360 }}>
+      <div style={{ background: '#1a2f4a', borderRadius: 22, padding: 24, border: '1px solid rgba(255,255,255,0.12)', width: '100%', maxWidth: 360 }}>
         <div style={{ textAlign: 'center', marginBottom: 20 }}>
           <p style={{ color: 'rgba(240,208,96,0.5)', fontSize: 13, margin: '0 0 6px' }}>分享房间号给朋友</p>
           <p style={{ color: '#f0d060', fontSize: 40, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '0.2em', margin: 0 }}>{room.roomId}</p>
