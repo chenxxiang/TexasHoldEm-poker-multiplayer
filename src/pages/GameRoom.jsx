@@ -44,14 +44,14 @@ const AVATARS = ['🐯','🦁','🐻','🐼','🐨','🦊','🐺','🐸','🐮',
 
 // Portrait layout — positions as % of the game container
 const SEAT_POS = [
-  { x: 50, y: 69 },  // 0 = me (bottom center)
+  { x: 50, y: 66 },  // 0 = me (bottom center, raised to avoid hole card overlap)
   { x: 85, y: 62 },  // 1
   { x: 91, y: 52 },  // 2
-  { x: 80, y: 39 },  // 3
-  { x: 65, y: 32 },  // 4
-  { x: 50, y: 29 },  // 5
-  { x: 35, y: 32 },  // 6
-  { x: 20, y: 39 },  // 7
+  { x: 80, y: 34 },  // 3 (raised to clear community cards)
+  { x: 65, y: 27 },  // 4
+  { x: 50, y: 24 },  // 5
+  { x: 35, y: 27 },  // 6
+  { x: 20, y: 34 },  // 7 (raised to clear community cards)
   { x: 9,  y: 52 },  // 8
   { x: 15, y: 62 },  // 9
 ];
@@ -245,13 +245,18 @@ export default function GameRoom() {
     const onError = ({ code }) => setError(code);
 
     const onPlayerTaunt = ({ socketId, type, payload }) => {
-      if (type === 'voice') {
+      // Play voice for other players' taunts (own voice already played in sendTaunt click handler)
+      if (type === 'voice' && socketId !== socket.id) {
         try {
-          window.speechSynthesis?.cancel();
-          const u = new SpeechSynthesisUtterance(payload);
-          u.lang = 'zh-CN';
-          u.rate = 1.05;
-          window.speechSynthesis?.speak(u);
+          const synth = window.speechSynthesis;
+          if (synth) {
+            if (synth.paused) synth.resume();
+            synth.cancel();
+            const u = new SpeechSynthesisUtterance(payload);
+            u.lang = 'zh-CN';
+            u.rate = 1.05;
+            synth.speak(u);
+          }
         } catch {}
       }
       const key = Date.now() + Math.random();
@@ -328,6 +333,20 @@ export default function GameRoom() {
 
   const sendTaunt = (type, payload) => {
     setShowTauntPicker(false);
+    // Play voice immediately within the click handler (iOS requires user gesture context)
+    if (type === 'voice') {
+      try {
+        const synth = window.speechSynthesis;
+        if (synth) {
+          if (synth.paused) synth.resume();
+          synth.cancel();
+          const u = new SpeechSynthesisUtterance(payload);
+          u.lang = 'zh-CN';
+          u.rate = 1.05;
+          synth.speak(u);
+        }
+      } catch {}
+    }
     socket.emit('playerTaunt', { roomId, type, payload });
   };
   const sendReady = () => { setMyReadyStatus('ready'); socket.emit('playerReadyStatus', { roomId, status: 'ready' }); };
@@ -385,7 +404,7 @@ export default function GameRoom() {
             {/* Pot */}
             {room.pot > 0 && (
               <div style={{
-                position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)',
+                position: 'absolute', top: '42%', left: '50%', transform: 'translate(-50%, -50%)',
                 zIndex: 5, display: 'flex', alignItems: 'center', gap: 6,
                 background: 'rgba(0,0,0,0.68)', borderRadius: 20, padding: '5px 14px',
                 border: '1px solid rgba(212,175,55,0.45)',
@@ -398,13 +417,13 @@ export default function GameRoom() {
 
             {/* Community cards */}
             <div style={{
-              position: 'absolute', top: '46%', left: '50%', transform: 'translate(-50%, -50%)',
+              position: 'absolute', top: '49%', left: '50%', transform: 'translate(-50%, -50%)',
               zIndex: 5,
             }}>
               <CommunityCards cards={room.communityCards} />
             </div>
 
-            {/* Player avatars */}
+            {/* Player avatars — zIndex 20 so SpeechBubbles (z:50) render above hole cards */}
             <PokerTable
               room={room}
               mySocketId={mySocketId}
@@ -420,23 +439,23 @@ export default function GameRoom() {
             {hasMyCards && (
               <div style={{
                 position: 'absolute', bottom: 90, left: '50%', transform: 'translateX(-50%)',
-                zIndex: 15, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
+                zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
                 pointerEvents: 'none',
               }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {me.holeCards.map((card, i) => (
+                    <Card key={i} card={card} size="md" />
+                  ))}
+                </div>
                 {myHandHint && (
                   <div style={{
-                    background: 'rgba(0,0,0,0.82)', borderRadius: 12,
-                    padding: '3px 12px', border: '1px solid rgba(212,175,55,0.4)',
-                    color: '#f0d060', fontSize: 12, fontWeight: 700,
+                    background: 'rgba(0,0,0,0.82)', borderRadius: 10,
+                    padding: '2px 10px', border: '1px solid rgba(212,175,55,0.4)',
+                    color: '#f0d060', fontSize: 11, fontWeight: 700,
                   }}>
                     💡 {myHandHint}
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {me.holeCards.map((card, i) => (
-                    <Card key={i} card={card} size="my" />
-                  ))}
-                </div>
               </div>
             )}
 
@@ -528,7 +547,15 @@ export default function GameRoom() {
               </button>
             </>
           ) : (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+              {/* My chip/bet info — always visible even when avatar is covered */}
+              {me && room.phase !== 'waiting' && (
+                <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
+                  <span style={{ color: '#f0d060', fontWeight: 700 }}>筹码 {me.chips}</span>
+                  {me.bet > 0 && <span style={{ color: '#fde68a' }}>下注 {me.bet}</span>}
+                  {toCall > 0 && <span style={{ color: '#93c5fd' }}>跟注 {toCall}</span>}
+                </div>
+              )}
               {/* Turn indicator */}
               {room.phase !== 'showdown' && room.phase !== 'waiting' && (() => {
                 const cur = room.players[room.currentTurnIndex];
@@ -627,7 +654,7 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
     : room.players;
 
   return (
-    <div style={{ position: 'absolute', inset: 0, zIndex: 3 }}>
+    <div style={{ position: 'absolute', inset: 0, zIndex: 20 }}>
       {orderedPlayers.map((player, seatPos) => {
         const pos = SEAT_POS[seatPos] || { x: 50, y: 50 };
         const origIdx = myIdx >= 0 ? (myIdx + seatPos) % n : seatPos;
@@ -999,15 +1026,16 @@ function SpeechBubble({ type, payload }) {
         background: type === 'emoji' ? 'rgba(8,12,28,0.88)' : 'rgba(8,12,28,0.92)',
         border: '2px solid rgba(240,208,96,0.6)',
         borderRadius: 18,
-        padding: type === 'emoji' ? '8px 12px' : '10px 16px',
+        padding: type === 'emoji' ? '8px 12px' : '10px 14px',
         boxShadow: '0 6px 24px rgba(0,0,0,0.7), 0 0 0 1px rgba(240,208,96,0.15)',
-        maxWidth: type === 'emoji' ? 120 : 180,
+        width: type === 'emoji' ? 'auto' : 200,
+        maxWidth: type === 'emoji' ? 120 : 220,
         textAlign: 'center',
         transform: 'translateX(-50%)',
       }}>
         {type === 'emoji'
           ? <span style={{ fontSize: 80, lineHeight: 1.05, display: 'block', userSelect: 'none' }}>{payload}</span>
-          : <span style={{ color: '#fde68a', fontSize: 14, fontWeight: 700, lineHeight: 1.5, display: 'block', whiteSpace: 'pre-wrap' }}>{payload}</span>
+          : <span style={{ color: '#fde68a', fontSize: 14, fontWeight: 700, lineHeight: 1.6, display: 'block', wordBreak: 'break-all', whiteSpace: 'normal', textAlign: 'left' }}>{payload}</span>
         }
         {/* 气泡尾巴 - 外边框 */}
         <div style={{
