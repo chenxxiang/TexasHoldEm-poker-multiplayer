@@ -526,6 +526,20 @@ module.exports = (io, socket) => {
     startNextHand(roomId);
   }
 
+  // ── 嘲讽 / 表情气泡 ──────────────────────────────────────────
+  socket.on('playerTaunt', ({ roomId, type, payload }) => {
+    const room = roomManager.getRoom(roomId);
+    if (!room) return;
+    const sender = room.players.find(p => p.socketId === socket.id);
+    if (!sender) return;
+    io.to(roomId).emit('playerTaunt', {
+      socketId: socket.id,
+      nickname: sender.nickname,
+      type,
+      payload,
+    });
+  });
+
   function startNextHand(roomId) {
     const room = roomManager.getRoom(roomId);
     if (!room) return;

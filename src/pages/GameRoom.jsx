@@ -4,6 +4,18 @@ import { socket } from '../context/SocketContext';
 import Card from '../components/Card';
 import { Hand } from 'pokersolver';
 
+const TAUNT_EMOJIS = ['🤣','😤','💀','🔥','🤡','👎','😎','🐔','😱','🙄','💩','🫵'];
+const TAUNT_VOICES = [
+  '哎哟，牌技还不如我奶奶',
+  '就这？就这！',
+  '你是来学习的吧',
+  '让我先教你怎么打牌',
+  '菜鸡互啄，我是王者',
+  '下次别来了',
+  '哈哈哈哈，笑死我了',
+  '摊牌了，我确实是高手',
+];
+
 const HAND_NAME_MAP = {
   'Royal Flush':    '皇家同花顺',
   'Straight Flush': '同花顺',
@@ -122,6 +134,9 @@ export default function GameRoom() {
   const [settlementCountdown, setSettlementCountdown] = useState(0);
   const [cardReveals, setCardReveals] = useState({});
   const [myReadyStatus, setMyReadyStatus] = useState('pending');
+  const [tauntBubbles, setTauntBubbles] = useState({});
+  const [showTauntPicker, setShowTauntPicker] = useState(false);
+  const [tauntTab, setTauntTab] = useState('emoji');
 
   const roomRef = useRef(room);
   useEffect(() => { roomRef.current = room; }, [room]);
@@ -229,6 +244,27 @@ export default function GameRoom() {
     };
     const onError = ({ code }) => setError(code);
 
+    const onPlayerTaunt = ({ socketId, type, payload }) => {
+      if (type === 'voice') {
+        try {
+          window.speechSynthesis?.cancel();
+          const u = new SpeechSynthesisUtterance(payload);
+          u.lang = 'zh-CN';
+          u.rate = 1.05;
+          window.speechSynthesis?.speak(u);
+        } catch {}
+      }
+      const key = Date.now() + Math.random();
+      setTauntBubbles(prev => ({ ...prev, [socketId]: { type, payload, key } }));
+      setTimeout(() => {
+        setTauntBubbles(prev => {
+          const next = { ...prev };
+          if (next[socketId]?.key === key) delete next[socketId];
+          return next;
+        });
+      }, 3500);
+    };
+
     socket.on('gameStateUpdate', onUpdate);
     socket.on('gameStarted', onStarted);
     socket.on('playerJoined', onPlayerJoined);
@@ -242,6 +278,7 @@ export default function GameRoom() {
     socket.on('error', onError);
     socket.on('cardRevealed', onCardRevealed);
     socket.on('playerReconnected', onPlayerReconnected);
+    socket.on('playerTaunt', onPlayerTaunt);
 
     return () => {
       socket.off('gameStateUpdate', onUpdate);
@@ -257,6 +294,7 @@ export default function GameRoom() {
       socket.off('error', onError);
       socket.off('cardRevealed', onCardRevealed);
       socket.off('playerReconnected', onPlayerReconnected);
+      socket.off('playerTaunt', onPlayerTaunt);
     };
   }, []);
 
@@ -286,6 +324,11 @@ export default function GameRoom() {
   const sendAction = (action, amount = 0) => {
     setError(''); setShowRaise(false);
     socket.emit('playerAction', { roomId, action, amount });
+  };
+
+  const sendTaunt = (type, payload) => {
+    setShowTauntPicker(false);
+    socket.emit('playerTaunt', { roomId, type, payload });
   };
   const sendReady = () => { setMyReadyStatus('ready'); socket.emit('playerReadyStatus', { roomId, status: 'ready' }); };
   const sendSpectate = () => { setMyReadyStatus('spectating'); socket.emit('playerReadyStatus', { roomId, status: 'spectating' }); };
@@ -369,6 +412,8 @@ export default function GameRoom() {
               countdown={countdown}
               isMyTurn={isMyTurn}
               onExtendTime={() => socket.emit('extendTime', { roomId })}
+              tauntBubbles={tauntBubbles}
+              onMyAvatarClick={() => setShowTauntPicker(true)}
             />
 
             {/* My hole cards */}
@@ -511,6 +556,28 @@ export default function GameRoom() {
         </div>
 
         {/* ── Overlays ── */}
+        <style>{`
+          @keyframes taunt-pop {
+            from { opacity:0; transform:translateX(-50%) scale(0.3); }
+            60%  { transform:translateX(-50%) scale(1.12); }
+            to   { opacity:1; transform:translateX(-50%) scale(1); }
+          }
+          @keyframes taunt-fade {
+            0%   { opacity:1; }
+            70%  { opacity:1; }
+            100% { opacity:0; }
+          }
+        `}</style>
+
+        {showTauntPicker && (
+          <TauntPicker
+            tab={tauntTab}
+            onTabChange={setTauntTab}
+            onSend={sendTaunt}
+            onClose={() => setShowTauntPicker(false)}
+          />
+        )}
+
         {room.phase === 'waiting' && (
           <WaitingRoom room={room} isHost={isHost} mySocketId={mySocketId} roomId={roomId} />
         )}
@@ -552,7 +619,7 @@ const presetBtn = {
 };
 
 // ── Poker table: only player avatars, no CSS oval ──────────────
-function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtendTime }) {
+function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtendTime, tauntBubbles, onMyAvatarClick }) {
   const n = room.players.length;
   const myIdx = room.players.findIndex(p => p.socketId === mySocketId);
   const orderedPlayers = myIdx >= 0
@@ -565,11 +632,12 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
         const pos = SEAT_POS[seatPos] || { x: 50, y: 50 };
         const origIdx = myIdx >= 0 ? (myIdx + seatPos) % n : seatPos;
         const isThisPlayersTurn = room.currentTurnIndex === origIdx;
+        const isMe = player.socketId === mySocketId;
         return (
           <AvatarTimer
             key={player.socketId}
             player={player}
-            isMe={player.socketId === mySocketId}
+            isMe={isMe}
             posStyle={{
               position: 'absolute',
               left: `${pos.x}%`, top: `${pos.y}%`,
@@ -582,6 +650,8 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
             countdown={isThisPlayersTurn ? countdown : 0}
             isMyTurn={isMyTurn}
             onExtendTime={onExtendTime}
+            bubble={tauntBubbles?.[player.socketId]}
+            onAvatarClick={isMe ? onMyAvatarClick : null}
           />
         );
       })}
@@ -590,7 +660,7 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
 }
 
 // ── Avatar with timer ring ─────────────────────────────────────
-function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime }) {
+function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime, bubble, onAvatarClick }) {
   const CIRCUMFERENCE = 2 * Math.PI * 20;
   const duration = timerInfo?.duration || 20;
   const dashOffset = CIRCUMFERENCE * (1 - (isCurrentTurn && countdown > 0 ? countdown / duration : 0));
@@ -602,6 +672,9 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
 
   return (
     <div style={posStyle}>
+      {/* Speech bubble — floats above avatar */}
+      {bubble && <SpeechBubble type={bubble.type} payload={bubble.payload} key={bubble.key} />}
+
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
         opacity: isGrayed ? 0.32 : 1,
@@ -609,16 +682,21 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
       }}>
         {/* Avatar + ring */}
         <div style={{ position: 'relative', width: sz, height: sz }}>
-          <div style={{
-            width: sz, height: sz, borderRadius: '50%',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: isMe ? 22 : 18,
-            background: isMe ? '#1e3a6e' : '#252525',
-            border: `2px solid ${isCurrentTurn ? '#f0d060' : isMe ? '#3b82f6' : 'rgba(255,255,255,0.18)'}`,
-            transform: isCurrentTurn ? 'scale(1.18)' : 'scale(1)',
-            transition: 'transform 0.2s ease',
-            opacity: isFolded ? 0.38 : 1,
-          }}>
+          <div
+            onClick={onAvatarClick}
+            style={{
+              width: sz, height: sz, borderRadius: '50%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: isMe ? 22 : 18,
+              background: isMe ? '#1e3a6e' : '#252525',
+              border: `2px solid ${isCurrentTurn ? '#f0d060' : isMe ? '#3b82f6' : 'rgba(255,255,255,0.18)'}`,
+              transform: isCurrentTurn ? 'scale(1.18)' : 'scale(1)',
+              transition: 'transform 0.2s ease',
+              opacity: isFolded ? 0.38 : 1,
+              cursor: onAvatarClick ? 'pointer' : 'default',
+              boxShadow: onAvatarClick ? '0 0 0 2px rgba(240,208,96,0.35)' : 'none',
+            }}
+          >
             {AVATARS[avatarIdx]}
           </div>
 
@@ -897,6 +975,133 @@ function WaitingRoom({ room, isHost, mySocketId, roomId }) {
         ) : (
           <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.38)', fontSize: 14, padding: '10px 0' }}>
             等待房主开始游戏...
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── 嘲讽气泡（浮在头像上方）──────────────────────────────────
+function SpeechBubble({ type, payload }) {
+  return (
+    <div style={{
+      position: 'absolute',
+      bottom: 'calc(100% + 10px)',
+      left: '50%',
+      zIndex: 50,
+      pointerEvents: 'none',
+      animation: 'taunt-pop 0.3s cubic-bezier(0.34,1.56,0.64,1) forwards, taunt-fade 3.5s linear forwards',
+      transformOrigin: 'bottom center',
+    }}>
+      <div style={{
+        position: 'relative',
+        background: type === 'emoji' ? 'rgba(8,12,28,0.88)' : 'rgba(8,12,28,0.92)',
+        border: '2px solid rgba(240,208,96,0.6)',
+        borderRadius: 18,
+        padding: type === 'emoji' ? '8px 12px' : '10px 16px',
+        boxShadow: '0 6px 24px rgba(0,0,0,0.7), 0 0 0 1px rgba(240,208,96,0.15)',
+        maxWidth: type === 'emoji' ? 120 : 180,
+        textAlign: 'center',
+        transform: 'translateX(-50%)',
+      }}>
+        {type === 'emoji'
+          ? <span style={{ fontSize: 80, lineHeight: 1.05, display: 'block', userSelect: 'none' }}>{payload}</span>
+          : <span style={{ color: '#fde68a', fontSize: 14, fontWeight: 700, lineHeight: 1.5, display: 'block', whiteSpace: 'pre-wrap' }}>{payload}</span>
+        }
+        {/* 气泡尾巴 - 外边框 */}
+        <div style={{
+          position: 'absolute', bottom: -12, left: '50%', transform: 'translateX(-50%)',
+          width: 0, height: 0,
+          borderLeft: '10px solid transparent',
+          borderRight: '10px solid transparent',
+          borderTop: '12px solid rgba(240,208,96,0.6)',
+        }} />
+        {/* 气泡尾巴 - 填充 */}
+        <div style={{
+          position: 'absolute', bottom: -9, left: '50%', transform: 'translateX(-50%)',
+          width: 0, height: 0,
+          borderLeft: '8px solid transparent',
+          borderRight: '8px solid transparent',
+          borderTop: '10px solid rgba(8,12,28,0.92)',
+        }} />
+      </div>
+    </div>
+  );
+}
+
+// ── 嘲讽选择器 ────────────────────────────────────────────────
+function TauntPicker({ tab, onTabChange, onSend, onClose }) {
+  return (
+    <div
+      style={{ position: 'absolute', inset: 0, zIndex: 60 }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          position: 'absolute', bottom: 82, left: 0, right: 0,
+          background: 'rgba(8,12,28,0.97)',
+          borderTop: '1px solid rgba(240,208,96,0.25)',
+          borderRadius: '22px 22px 0 0',
+          padding: '14px 14px 20px',
+          boxShadow: '0 -8px 32px rgba(0,0,0,0.6)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* 标签栏 */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 14, justifyContent: 'center' }}>
+          {[['emoji', '😤 表情包'], ['voice', '🎤 嘲讽语音']].map(([key, label]) => (
+            <button key={key} onClick={() => onTabChange(key)} style={{
+              background: tab === key ? 'rgba(240,208,96,0.18)' : 'rgba(255,255,255,0.06)',
+              border: `1.5px solid ${tab === key ? 'rgba(240,208,96,0.55)' : 'rgba(255,255,255,0.1)'}`,
+              color: tab === key ? '#f0d060' : 'rgba(255,255,255,0.55)',
+              fontWeight: 700, fontSize: 14, padding: '7px 22px',
+              borderRadius: 20, cursor: 'pointer',
+              transition: 'all 0.15s',
+            }}>{label}</button>
+          ))}
+        </div>
+
+        {tab === 'emoji' ? (
+          /* 表情格子 */
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 8 }}>
+            {TAUNT_EMOJIS.map(e => (
+              <button
+                key={e}
+                onClick={() => onSend('emoji', e)}
+                style={{
+                  background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: 14, padding: '10px 4px',
+                  cursor: 'pointer', fontSize: 38, lineHeight: 1.1,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'transform 0.1s, background 0.1s',
+                }}
+                onTouchStart={e => e.currentTarget.style.transform = 'scale(1.25)'}
+                onTouchEnd={e => e.currentTarget.style.transform = 'scale(1)'}
+              >{e}</button>
+            ))}
+          </div>
+        ) : (
+          /* 嘲讽列表 */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 280, overflowY: 'auto' }}>
+            {TAUNT_VOICES.map((text, i) => (
+              <button
+                key={i}
+                onClick={() => onSend('voice', text)}
+                style={{
+                  background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: 14, padding: '12px 16px',
+                  cursor: 'pointer', textAlign: 'left',
+                  color: '#e2e8f0', fontSize: 15, fontWeight: 500,
+                  display: 'flex', alignItems: 'center', gap: 10,
+                }}
+              >
+                <span style={{ fontSize: 22, flexShrink: 0 }}>🎤</span>
+                {text}
+              </button>
+            ))}
           </div>
         )}
       </div>
