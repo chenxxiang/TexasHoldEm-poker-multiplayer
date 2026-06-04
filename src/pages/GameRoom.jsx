@@ -394,8 +394,6 @@ export default function GameRoom() {
     }
     socket.emit('playerTaunt', { roomId, type, payload });
   };
-  const sendReady = () => { setMyReadyStatus('ready'); socket.emit('playerReadyStatus', { roomId, status: 'ready' }); };
-  const sendSpectate = () => { setMyReadyStatus('spectating'); socket.emit('playerReadyStatus', { roomId, status: 'spectating' }); };
   const sendRevealCards = () => socket.emit('revealCards', { roomId });
   const sendQueueNextHand = () => { setMyReadyStatus('queued'); socket.emit('queueForNextHand', { roomId }); };
   const handleRebuy = () => { setRebuyError(''); socket.emit('rebuy', { roomId, amount: room.settings.initialChips }); };
@@ -968,7 +966,7 @@ function Scoreboard({ room, mySocketId, onClose }) {
 }
 
 // ── Settlement overlay ─────────────────────────────────────────
-function SettlementScreen({ settlementData, room, mySocketId, settlementCountdown, cardReveals, myReadyStatus, onReady, onSpectate, onRevealCards, onQueueNextHand }) {
+function SettlementScreen({ settlementData, room, mySocketId, settlementCountdown, cardReveals, onRevealCards }) {
   const { results = [] } = settlementData || {};
   const hasRevealed = !!cardReveals[mySocketId];
 
@@ -986,24 +984,42 @@ function SettlementScreen({ settlementData, room, mySocketId, settlementCountdow
       }}>
         <h2 style={{ color: '#f0d060', fontWeight: 700, fontSize: 20, textAlign: 'center', margin: 0 }}>🃏 本局结算</h2>
 
+        {/* 公共牌 */}
+        {room.communityCards?.length > 0 && (
+          <div style={{ display: 'flex', gap: 5, justifyContent: 'center' }}>
+            {room.communityCards.map((card, i) => (
+              <Card key={i} card={card} size="sm" />
+            ))}
+          </div>
+        )}
+
+        {/* 结果列表 */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
           {results.map(r => {
             const revealedCards = cardReveals[r.socketId] || r.holeCards || [];
+            const cardsVisible = revealedCards.length > 0 && revealedCards.every(c => c !== 'hidden');
+            const isWinner = r.delta > 0;
             const player = room.players.find(p => p.socketId === r.socketId);
             return (
               <div key={r.socketId} style={{
                 borderRadius: 14, padding: '10px 12px',
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                background: r.delta > 0 ? 'rgba(34,197,94,0.18)' : 'rgba(255,255,255,0.08)',
-                border: `1px solid ${r.delta > 0 ? 'rgba(34,197,94,0.38)' : 'rgba(255,255,255,0.14)'}`,
+                background: isWinner ? 'rgba(34,197,94,0.18)' : 'rgba(255,255,255,0.08)',
+                border: `1px solid ${isWinner ? 'rgba(34,197,94,0.38)' : 'rgba(255,255,255,0.14)'}`,
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                  <span style={{ fontSize: 20, flexShrink: 0 }}>{AVATARS[(player?.seatIndex || 0) % AVATARS.length]}</span>
+                  <span style={{ fontSize: 20, flexShrink: 0 }}>
+                    {isWinner ? '👑' : AVATARS[(player?.seatIndex || 0) % AVATARS.length]}
+                  </span>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {r.nickname}{r.socketId === mySocketId ? ' (我)' : ''}
                     </div>
-                    {r.handName && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.38)' }}>{HAND_NAME_MAP[r.handName] || r.handName}</div>}
+                    {cardsVisible && r.handName && (
+                      <div style={{ fontSize: 11, color: '#f0d060', fontWeight: 600 }}>
+                        {HAND_NAME_MAP[r.handName] || r.handName}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
@@ -1014,7 +1030,7 @@ function SettlementScreen({ settlementData, room, mySocketId, settlementCountdow
                         : <Card key={i} card={card} size="sm" />
                     )}
                   </div>
-                  <span style={{ fontWeight: 700, fontSize: 14, width: 46, textAlign: 'right', color: r.delta > 0 ? '#4ade80' : '#f87171' }}>
+                  <span style={{ fontWeight: 700, fontSize: 14, width: 46, textAlign: 'right', color: isWinner ? '#4ade80' : '#f87171' }}>
                     {r.delta > 0 ? `+${r.delta}` : r.delta}
                   </span>
                 </div>
@@ -1023,47 +1039,19 @@ function SettlementScreen({ settlementData, room, mySocketId, settlementCountdow
           })}
         </div>
 
+        {/* 亮牌按钮 */}
         {!hasRevealed
           ? <button onClick={onRevealCards} style={{ width: '100%', padding: '10px 0', borderRadius: 14, border: '1px solid rgba(240,208,96,0.38)', background: 'none', color: '#f0d060', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>亮牌 🂠</button>
           : <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>已亮牌</div>
         }
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, textAlign: 'center', margin: 0 }}>玩家状态</p>
-          {room.players.map(p => {
-            const badge = p.readyStatus === 'ready' ? '🟢 准备' : p.readyStatus === 'spectating' ? '👁 观战' : p.readyStatus === 'queued' ? '🟡 下局参与' : '⏳ 待选';
-            return (
-              <div key={p.socketId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 6px' }}>
-                <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>{p.nickname}{p.socketId === mySocketId ? ' (我)' : ''}</span>
-                <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>{badge}</span>
-              </div>
-            );
-          })}
-        </div>
-
+        {/* 3s 倒计时进度条 */}
         {settlementCountdown > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <div style={{ height: 3, background: 'rgba(0,0,0,0.3)', borderRadius: 4, overflow: 'hidden' }}>
-              <div style={{ height: '100%', background: '#f0d060', transition: 'width 1s linear', width: `${(settlementCountdown / 60) * 100}%` }} />
+              <div style={{ height: '100%', background: '#f0d060', transition: 'width 1s linear', width: `${(settlementCountdown / 3) * 100}%` }} />
             </div>
-            <p style={{ color: 'rgba(255,255,255,0.28)', fontSize: 11, textAlign: 'center', margin: 0 }}>{settlementCountdown}s 后未选视为观战</p>
-          </div>
-        )}
-
-        {myReadyStatus === 'pending' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <button onClick={onReady} style={{ background: 'linear-gradient(135deg,#14532d,#166534)', color: '#fff', fontWeight: 700, padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer', fontSize: 15 }}>✅ 准备</button>
-            <button onClick={onSpectate} style={{ background: 'rgba(255,255,255,0.07)', color: '#fff', fontWeight: 700, padding: '14px 0', borderRadius: 14, border: '1px solid rgba(255,255,255,0.13)', cursor: 'pointer', fontSize: 15 }}>👁 观战</button>
-          </div>
-        )}
-        {myReadyStatus === 'spectating' && (
-          <button onClick={onQueueNextHand} style={{ width: '100%', padding: '14px 0', borderRadius: 14, border: '1px solid rgba(240,208,96,0.38)', background: 'none', color: '#f0d060', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>下一局参与</button>
-        )}
-        {(myReadyStatus === 'ready' || myReadyStatus === 'queued') && (
-          <div style={{ textAlign: 'center', padding: '4px 0' }}>
-            <span style={{ color: myReadyStatus === 'ready' ? '#4ade80' : '#fbbf24', fontWeight: 700, fontSize: 14 }}>
-              {myReadyStatus === 'ready' ? '✅ 已准备，等待其他玩家...' : '🟡 下局将参与'}
-            </span>
+            <p style={{ color: 'rgba(255,255,255,0.28)', fontSize: 11, textAlign: 'center', margin: 0 }}>{settlementCountdown}s 后自动开始下一局</p>
           </div>
         )}
       </div>
