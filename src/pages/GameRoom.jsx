@@ -710,9 +710,6 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
 
   return (
     <div style={posStyle}>
-      {/* Speech bubble — floats above avatar */}
-      {bubble && <SpeechBubble type={bubble.type} payload={bubble.payload} key={bubble.key} />}
-
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
         opacity: isGrayed ? 0.32 : 1,
@@ -720,6 +717,8 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
       }}>
         {/* Avatar + ring */}
         <div style={{ position: 'relative', width: sz, height: sz }}>
+          {/* Speech bubble anchored to avatar circle */}
+          {bubble && <SpeechBubble type={bubble.type} payload={bubble.payload} key={bubble.key} />}
           <div
             onClick={onAvatarClick}
             style={{
