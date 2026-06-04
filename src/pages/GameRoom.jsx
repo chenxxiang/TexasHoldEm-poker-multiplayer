@@ -158,6 +158,7 @@ export default function GameRoom() {
   const [showScoreboard, setShowScoreboard] = useState(false);
   const [rebuyError, setRebuyError] = useState('');
   const [settlementData, setSettlementData] = useState(null);
+  const [winAnimating, setWinAnimating] = useState(false);
   const [settlementDeadline, setSettlementDeadline] = useState(null);
   const [settlementCountdown, setSettlementCountdown] = useState(0);
   const [cardReveals, setCardReveals] = useState({});
@@ -271,10 +272,9 @@ export default function GameRoom() {
       setSettlementData({ results: results || [], wasMuckWin });
       setSettlementDeadline(deadline);
       setCardReveals({});
-      const me2 = r.players.find(p => p.socketId === socket.id);
-      setMyReadyStatus(me2?.readyStatus || 'pending');
-      const winners = (results || []).filter(x => x.delta > 0).map(x => x.nickname);
-      setMessage(winners.length ? `🏆 ${winners.join('、')} 获胜！` : '');
+      setMessage('');
+      setWinAnimating(true);
+      setTimeout(() => setWinAnimating(false), 1000);
     };
     const onCardRevealed = ({ socketId, holeCards }) =>
       setCardReveals(prev => ({ ...prev, [socketId]: holeCards }));
@@ -689,6 +689,14 @@ export default function GameRoom() {
             transform: translateY(3px) !important;
             filter: brightness(0.88) !important;
           }
+          @keyframes win-fade-in {
+            from { opacity:0; transform:scale(0.85); }
+            to   { opacity:1; transform:scale(1); }
+          }
+          @keyframes crown-bounce {
+            from { transform:translateY(0) scale(1); }
+            to   { transform:translateY(-10px) scale(1.12); }
+          }
         `}</style>
 
         {showTauntPicker && (
@@ -708,18 +716,18 @@ export default function GameRoom() {
           <Scoreboard room={room} mySocketId={mySocketId} onClose={() => setShowScoreboard(false)} />
         )}
 
-        {(room.phase === 'settlement' || settlementData) && (
+        {winAnimating && settlementData && (
+          <WinAnimation results={settlementData.results} />
+        )}
+
+        {(room.phase === 'settlement' || settlementData) && !winAnimating && (
           <SettlementScreen
             settlementData={settlementData}
             room={room}
             mySocketId={mySocketId}
             settlementCountdown={settlementCountdown}
             cardReveals={cardReveals}
-            myReadyStatus={myReadyStatus}
-            onReady={sendReady}
-            onSpectate={sendSpectate}
             onRevealCards={sendRevealCards}
-            onQueueNextHand={sendQueueNextHand}
           />
         )}
       </div>
@@ -1256,6 +1264,33 @@ function TauntPicker({ tab, onTabChange, onSend, onClose }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── 胜者动画覆盖层（1s）──────────────────────────────────────
+function WinAnimation({ results }) {
+  const winners = (results || []).filter(r => r.delta > 0);
+  if (winners.length === 0) return null;
+  const text = winners.length === 1
+    ? `🏆 ${winners[0].nickname} 赢了！`
+    : `🏆 ${winners.map(w => w.nickname).join(' & ')} 平分！`;
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, zIndex: 45,
+      background: 'rgba(0,0,0,0.78)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      animation: 'win-fade-in 0.25s ease forwards',
+    }}>
+      <div style={{
+        fontSize: 72, lineHeight: 1,
+        animation: 'crown-bounce 0.4s ease-in-out infinite alternate',
+      }}>👑</div>
+      <div style={{
+        color: '#f0d060', fontSize: 26, fontWeight: 800, marginTop: 14,
+        textShadow: '0 2px 24px rgba(240,208,96,0.9)',
+        textAlign: 'center', padding: '0 24px',
+      }}>{text}</div>
     </div>
   );
 }

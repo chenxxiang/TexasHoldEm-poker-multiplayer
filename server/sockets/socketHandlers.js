@@ -437,7 +437,7 @@ module.exports = (io, socket) => {
     });
 
     const wasMuckWin = active.length === 1;
-    const settlementDeadline = Date.now() + 60000;
+    const settlementDeadline = Date.now() + 3000;
 
     // Send each player their personalized result view
     for (const player of room.players) {
@@ -459,22 +459,12 @@ module.exports = (io, socket) => {
       });
     }
 
-    // 60-second timeout: auto-spectate pending players
+    // 3-second auto-start: no manual ready needed
     room._settlementTimeout = setTimeout(() => {
       const r = roomManager.getRoom(roomId);
       if (!r || r.phase !== 'settlement') return;
-      r.players.forEach(p => {
-        if (p.readyStatus === 'pending') p.readyStatus = 'spectating';
-      });
-      const readyCount = r.players.filter(
-        p => p.readyStatus === 'ready' || p.readyStatus === 'queued'
-      ).length;
-      if (readyCount >= 2) {
-        startNextHand(roomId);
-      } else {
-        broadcastToEach(io, r, 'gameStateUpdate');
-      }
-    }, 60000);
+      startNextHand(roomId);
+    }, 3000);
   }
 
   // ── 工具函数 ──────────────────────────────────────────────
