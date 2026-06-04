@@ -24,6 +24,7 @@ if (typeof window !== 'undefined' && window.speechSynthesis) {
 function speakText(text) {
   const synth = window.speechSynthesis;
   if (!synth) return;
+  if (synth.paused) synth.resume();
   if (synth.speaking) synth.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'zh-CN';
@@ -276,17 +277,19 @@ export default function GameRoom() {
     const onPlayerTaunt = ({ socketId, type, payload }) => {
       if (type === 'voice' && socketId !== socket.id) {
         try { speakText(payload); } catch {}
-        pendingSpeechRef.current = payload;
-        const release = () => {
-          if (pendingSpeechRef.current) {
-            speakText(pendingSpeechRef.current);
-            pendingSpeechRef.current = null;
-          }
-          document.removeEventListener('touchstart', release);
-          document.removeEventListener('click', release);
-        };
-        document.addEventListener('touchstart', release, { once: true, passive: true });
-        document.addEventListener('click', release, { once: true });
+        if (navigator.maxTouchPoints > 0) {
+          pendingSpeechRef.current = payload;
+          const release = () => {
+            if (pendingSpeechRef.current) {
+              speakText(pendingSpeechRef.current);
+              pendingSpeechRef.current = null;
+            }
+            document.removeEventListener('touchstart', release);
+            document.removeEventListener('click', release);
+          };
+          document.addEventListener('touchstart', release, { once: true, passive: true });
+          document.addEventListener('click', release, { once: true });
+        }
       }
       const key = Date.now() + Math.random();
       setTauntBubbles(prev => ({ ...prev, [socketId]: { type, payload, key } }));
