@@ -4,6 +4,34 @@ import { socket } from '../context/SocketContext';
 import Card from '../components/Card';
 import { Hand } from 'pokersolver';
 
+// ── Speech synthesis: pre-load voices for mobile (Huawei/Android) ──
+let _cachedVoice = null;
+
+function _loadVoice() {
+  const voices = window.speechSynthesis?.getVoices() || [];
+  _cachedVoice =
+    voices.find(v => v.lang === 'zh-CN') ||
+    voices.find(v => v.lang.startsWith('zh')) ||
+    voices[0] ||
+    null;
+}
+
+if (typeof window !== 'undefined' && window.speechSynthesis) {
+  window.speechSynthesis.addEventListener('voiceschanged', _loadVoice);
+  _loadVoice();
+}
+
+function speakText(text) {
+  const synth = window.speechSynthesis;
+  if (!synth) return;
+  if (synth.speaking) synth.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'zh-CN';
+  u.rate = 1.05;
+  if (_cachedVoice) u.voice = _cachedVoice;
+  synth.speak(u);
+}
+
 const TAUNT_EMOJIS = ['🤣','😤','💀','🔥','🤡','👎','😎','🐔','😱','🙄','💩','🫵'];
 const TAUNT_VOICES = [
   '哎哟，牌技还不如我奶奶',
@@ -140,6 +168,7 @@ export default function GameRoom() {
 
   const roomRef = useRef(room);
   useEffect(() => { roomRef.current = room; }, [room]);
+  const pendingSpeechRef = useRef(null);
 
   // Auto-clear floating messages after 3 s
   useEffect(() => {
@@ -245,19 +274,19 @@ export default function GameRoom() {
     const onError = ({ code }) => setError(code);
 
     const onPlayerTaunt = ({ socketId, type, payload }) => {
-      // Play voice for other players' taunts (own voice already played in sendTaunt click handler)
       if (type === 'voice' && socketId !== socket.id) {
-        try {
-          const synth = window.speechSynthesis;
-          if (synth) {
-            if (synth.paused) synth.resume();
-            synth.cancel();
-            const u = new SpeechSynthesisUtterance(payload);
-            u.lang = 'zh-CN';
-            u.rate = 1.05;
-            synth.speak(u);
+        try { speakText(payload); } catch {}
+        pendingSpeechRef.current = payload;
+        const release = () => {
+          if (pendingSpeechRef.current) {
+            speakText(pendingSpeechRef.current);
+            pendingSpeechRef.current = null;
           }
-        } catch {}
+          document.removeEventListener('touchstart', release);
+          document.removeEventListener('click', release);
+        };
+        document.addEventListener('touchstart', release, { once: true, passive: true });
+        document.addEventListener('click', release, { once: true });
       }
       const key = Date.now() + Math.random();
       setTauntBubbles(prev => ({ ...prev, [socketId]: { type, payload, key } }));
@@ -333,19 +362,8 @@ export default function GameRoom() {
 
   const sendTaunt = (type, payload) => {
     setShowTauntPicker(false);
-    // Play voice immediately within the click handler (iOS requires user gesture context)
     if (type === 'voice') {
-      try {
-        const synth = window.speechSynthesis;
-        if (synth) {
-          if (synth.paused) synth.resume();
-          synth.cancel();
-          const u = new SpeechSynthesisUtterance(payload);
-          u.lang = 'zh-CN';
-          u.rate = 1.05;
-          synth.speak(u);
-        }
-      } catch {}
+      speakText(payload);
     }
     socket.emit('playerTaunt', { roomId, type, payload });
   };
