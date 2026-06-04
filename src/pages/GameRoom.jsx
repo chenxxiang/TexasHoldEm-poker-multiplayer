@@ -71,19 +71,17 @@ const PHASE_LABELS = {
 };
 const AVATARS = ['🐯','🦁','🐻','🐼','🐨','🦊','🐺','🐸','🐮','🐷'];
 
-// Portrait layout — positions as % of the game container
-const SEAT_POS = [
-  { x: 50, y: 66 },  // 0 = me (bottom center, raised to avoid hole card overlap)
-  { x: 85, y: 62 },  // 1
-  { x: 91, y: 52 },  // 2
-  { x: 80, y: 34 },  // 3 (raised to clear community cards)
-  { x: 65, y: 27 },  // 4
-  { x: 50, y: 24 },  // 5
-  { x: 35, y: 27 },  // 6
-  { x: 20, y: 34 },  // 7 (raised to clear community cards)
-  { x: 9,  y: 52 },  // 8
-  { x: 15, y: 62 },  // 9
-];
+// Dynamic seat positions based on player count (i=0 = me at bottom center, others clockwise)
+function getSeatPositions(n) {
+  const cx = 50, cy = 42, rx = 42, ry = 24;
+  return Array.from({ length: n }, (_, i) => {
+    const angle = Math.PI / 2 + (2 * Math.PI * i / n);
+    return {
+      x: Math.max(8, Math.min(92, Math.round(cx + rx * Math.cos(angle)))),
+      y: Math.max(16, Math.min(68, Math.round(cy + ry * Math.sin(angle)))),
+    };
+  });
+}
 
 function getPositionLabel(playerIndex, dealerIndex, numPlayers) {
   const dist = (playerIndex - dealerIndex + numPlayers) % numPlayers;
@@ -700,11 +698,12 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
   const orderedPlayers = myIdx >= 0
     ? [...room.players.slice(myIdx), ...room.players.slice(0, myIdx)]
     : room.players;
+  const seats = getSeatPositions(orderedPlayers.length);
 
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 20 }}>
       {orderedPlayers.map((player, seatPos) => {
-        const pos = SEAT_POS[seatPos] || { x: 50, y: 50 };
+        const pos = seats[seatPos] || { x: 50, y: 50 };
         const origIdx = myIdx >= 0 ? (myIdx + seatPos) % n : seatPos;
         const isThisPlayersTurn = room.currentTurnIndex === origIdx;
         const isMe = player.socketId === mySocketId;
