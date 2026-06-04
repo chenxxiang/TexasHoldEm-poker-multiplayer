@@ -637,6 +637,38 @@ export default function GameRoom() {
                   👁 观战中 · 等待本局结束后可参与下一局
                 </div>
               )}
+
+              {/* 弃牌后可随时站起观战 */}
+              {me?.folded && me?.status !== 'spectating' &&
+               ['preflop','flop','turn','river'].includes(room.phase) && (
+                <button
+                  onClick={() => socket.emit('foldToSpectate', { roomId })}
+                  style={{
+                    background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.18)',
+                    borderRadius: 12, color: 'rgba(255,255,255,0.75)', fontWeight: 600,
+                    fontSize: 13, padding: '8px 22px', cursor: 'pointer',
+                  }}
+                >👁 站起观战</button>
+              )}
+
+              {/* 观战中可随时坐下（下局参与） */}
+              {me?.status === 'spectating' &&
+               ['preflop','flop','turn','river'].includes(room.phase) &&
+               me?.readyStatus !== 'queued' && (
+                <button
+                  onClick={sendQueueNextHand}
+                  style={{
+                    background: 'rgba(240,208,96,0.12)', border: '1px solid rgba(240,208,96,0.35)',
+                    borderRadius: 12, color: '#f0d060', fontWeight: 600,
+                    fontSize: 13, padding: '8px 22px', cursor: 'pointer',
+                  }}
+                >🪑 坐下（下局参与）</button>
+              )}
+              {me?.status === 'spectating' && me?.readyStatus === 'queued' &&
+               ['preflop','flop','turn','river'].includes(room.phase) && (
+                <div style={{ color: '#fbbf24', fontSize: 13, fontWeight: 600 }}>🟡 下局将参与</div>
+              )}
+
               {/* My chip/bet info — always visible even when avatar is covered */}
               {me && room.phase !== 'waiting' && (
                 <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>

@@ -127,6 +127,16 @@ module.exports = (io, socket) => {
     checkAllReadyAndStart(roomId);
   });
 
+  socket.on('foldToSpectate', ({ roomId }) => {
+    const room = roomManager.getRoom(roomId);
+    if (!room) return;
+    const player = room.players.find(p => p.socketId === socket.id);
+    if (!player || !player.folded || player.status === 'spectating') return;
+    player.status = 'spectating';
+    player.readyStatus = 'spectating';
+    broadcastToEach(io, room, 'gameStateUpdate');
+  });
+
   // ── 结算阶段：自主揭示手牌 ───────────────────────────────────
   socket.on('revealCards', ({ roomId }) => {
     const room = roomManager.getRoom(roomId);
