@@ -170,6 +170,7 @@ export default function GameRoom() {
     return 'pending';
   });
   const [tauntBubbles, setTauntBubbles] = useState({});
+  const [actionBadges, setActionBadges] = useState({});
   const [showTauntPicker, setShowTauntPicker] = useState(false);
   const [tauntTab, setTauntTab] = useState('emoji');
 
@@ -239,6 +240,19 @@ export default function GameRoom() {
       setRoom(r); setError(''); setShowRaise(false);
       const canAct = r.players.filter(p => !p.folded && p.chips > 0);
       if (canAct.length === 0) { setTimerInfo(null); setCountdown(0); }
+      if (payload.lastAction) {
+        const { socketId, action, amount } = payload.lastAction;
+        if (socketId !== socket.id) playActionSound(action);
+        const key = Date.now();
+        setActionBadges(prev => ({ ...prev, [socketId]: { action, amount, key } }));
+        setTimeout(() => {
+          setActionBadges(prev => {
+            const next = { ...prev };
+            if (next[socketId]?.key === key) delete next[socketId];
+            return next;
+          });
+        }, 1500);
+      }
     };
     const onStarted = (payload) => {
       const r = payload?.room ?? payload;
@@ -484,6 +498,7 @@ export default function GameRoom() {
               onExtendTime={() => socket.emit('extendTime', { roomId })}
               tauntBubbles={tauntBubbles}
               onMyAvatarClick={() => setShowTauntPicker(true)}
+              actionBadges={actionBadges}
             />
 
             {/* My hole cards */}
@@ -727,7 +742,7 @@ const presetBtn = {
 };
 
 // ── Poker table: only player avatars, no CSS oval ──────────────
-function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtendTime, tauntBubbles, onMyAvatarClick }) {
+function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtendTime, tauntBubbles, onMyAvatarClick, actionBadges }) {
   const n = room.players.length;
   const myIdx = room.players.findIndex(p => p.socketId === mySocketId);
   const orderedPlayers = myIdx >= 0
@@ -761,6 +776,7 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
             onExtendTime={onExtendTime}
             bubble={tauntBubbles?.[player.socketId]}
             onAvatarClick={isMe ? onMyAvatarClick : null}
+            actionBadge={actionBadges?.[player.socketId]}
           />
         );
       })}
@@ -769,7 +785,7 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
 }
 
 // ── Avatar with timer ring ─────────────────────────────────────
-function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime, bubble, onAvatarClick }) {
+function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime, bubble, onAvatarClick, actionBadge }) {
   const CIRCUMFERENCE = 2 * Math.PI * 20;
   const duration = timerInfo?.duration || 20;
   const dashOffset = CIRCUMFERENCE * (1 - (isCurrentTurn && countdown > 0 ? countdown / duration : 0));
@@ -790,6 +806,7 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
         <div style={{ position: 'relative', width: sz, height: sz }}>
           {/* Speech bubble anchored to avatar circle */}
           {bubble && <SpeechBubble type={bubble.type} payload={bubble.payload} key={bubble.key} />}
+          {actionBadge && !bubble && <ActionBadge badge={actionBadge} />}
           <div
             onClick={onAvatarClick}
             style={{
@@ -865,6 +882,31 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
         )}
       </div>
     </div>
+  );
+}
+
+// ── 行动徽章（弃牌/跟注/过牌/加注/all-in）──────────────────
+const BADGE_STYLES = {
+  fold:  { bg: 'rgba(239,68,68,0.92)',   label: '弃牌' },
+  call:  { bg: 'rgba(34,197,94,0.92)',   label: (a) => `跟注 ${a.amount}` },
+  check: { bg: 'rgba(107,114,128,0.92)', label: '过牌' },
+  raise: { bg: 'rgba(59,130,246,0.92)',  label: (a) => `加注 ${a.amount}` },
+  allin: { bg: 'rgba(240,208,96,0.95)',  label: 'ALL IN', color: '#000' },
+};
+
+function ActionBadge({ badge }) {
+  const s = BADGE_STYLES[badge.action];
+  if (!s) return null;
+  const label = typeof s.label === 'function' ? s.label(badge) : s.label;
+  return (
+    <div style={{
+      position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%',
+      transform: 'translateX(-50%)',
+      background: s.bg, borderRadius: 10, padding: '3px 8px',
+      fontSize: 11, fontWeight: 800, color: s.color || '#fff',
+      whiteSpace: 'nowrap', zIndex: 55, pointerEvents: 'none',
+      animation: 'taunt-pop 0.2s cubic-bezier(0.34,1.56,0.64,1) forwards, taunt-fade 1.5s linear forwards',
+    }}>{label}</div>
   );
 }
 

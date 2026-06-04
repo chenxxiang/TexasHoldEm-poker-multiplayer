@@ -68,7 +68,8 @@ module.exports = (io, socket) => {
     const valid = applyAction(room, actor, action, Number(amount) || 0);
     if (!valid) { socket.emit('actionError', { code: 'INVALID_ACTION' }); return; }
 
-    processAfterAction(room, roomId);
+    const lastAction = { socketId: actor.socketId, action, amount: Number(amount) || 0 };
+    processAfterAction(room, roomId, lastAction);
   });
 
   // ── 延时申请 ──────────────────────────────────────────────
@@ -175,10 +176,11 @@ module.exports = (io, socket) => {
   // ─────────────────────────────────────────────────────────
 
   // 玩家行动后的统一处理入口
-  function processAfterAction(room, roomId) {
+  function processAfterAction(room, roomId, lastAction = null) {
+    const extra = lastAction ? { lastAction } : {};
     if (!shouldAdvanceStreet(room)) {
       advanceTurn(room);
-      broadcastToEach(io, room, 'gameStateUpdate');
+      broadcastToEach(io, room, 'gameStateUpdate', extra);
       startNextPlayerTimer(room);
       return;
     }
@@ -192,7 +194,7 @@ module.exports = (io, socket) => {
     // 全员 all-in 或轮次结束：清除行动索引，广播当前状态，再进入下一街
     const canAct = active.filter(p => p.chips > 0);
     if (canAct.length === 0) room.currentTurnIndex = -1;
-    broadcastToEach(io, room, 'gameStateUpdate');
+    broadcastToEach(io, room, 'gameStateUpdate', extra);
     advanceStreet(roomId);
   }
 
@@ -330,7 +332,8 @@ module.exports = (io, socket) => {
       const autoAction = timedOutActor.chips === 0 ? 'check' : 'fold';
       applyAction(r, timedOutActor, autoAction, 0);
       io.to(roomId).emit('timedOut', { socketId, autoAction });
-      processAfterAction(r, roomId);
+      const lastAction = { socketId, action: autoAction, amount: 0 };
+      processAfterAction(r, roomId, lastAction);
     });
 
     io.to(room.roomId).emit('timerStarted', {
@@ -477,9 +480,9 @@ module.exports = (io, socket) => {
   // ── 工具函数 ──────────────────────────────────────────────
 
   // 向所有玩家逐个发送（绕过 socket.io 房间），每人收到自己视角的房间状态
-  function broadcastToEach(io, room, event) {
+  function broadcastToEach(io, room, event, extra = {}) {
     for (const player of room.players) {
-      io.to(player.socketId).emit(event, { room: sanitizeRoom(room, player.socketId) });
+      io.to(player.socketId).emit(event, { room: sanitizeRoom(room, player.socketId), ...extra });
     }
   }
 
