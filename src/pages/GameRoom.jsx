@@ -162,7 +162,14 @@ export default function GameRoom() {
   const [settlementDeadline, setSettlementDeadline] = useState(null);
   const [settlementCountdown, setSettlementCountdown] = useState(0);
   const [cardReveals, setCardReveals] = useState({});
-  const [myReadyStatus, setMyReadyStatus] = useState('pending');
+  const [myReadyStatus, setMyReadyStatus] = useState(() => {
+    const initRoom = location.state?.room;
+    if (initRoom) {
+      const initMe = initRoom.players.find(p => p.socketId === socket.id);
+      return initMe?.readyStatus || 'pending';
+    }
+    return 'pending';
+  });
   const [tauntBubbles, setTauntBubbles] = useState({});
   const [showTauntPicker, setShowTauntPicker] = useState(false);
   const [tauntTab, setTauntTab] = useState('emoji');
@@ -580,6 +587,12 @@ export default function GameRoom() {
             </>
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+              {/* Spectator indicator for mid-game joiners */}
+              {me?.status === 'spectating' && room.phase !== 'settlement' && (
+                <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13, textAlign: 'center' }}>
+                  👁 观战中 · 等待本局结束后可参与下一局
+                </div>
+              )}
               {/* My chip/bet info — always visible even when avatar is covered */}
               {me && room.phase !== 'waiting' && (
                 <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
