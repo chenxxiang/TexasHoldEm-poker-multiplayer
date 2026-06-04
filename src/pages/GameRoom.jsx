@@ -532,12 +532,36 @@ export default function GameRoom() {
                 {actualRaise}
                 <span style={{ color: 'rgba(255,255,255,0.35)', fontWeight: 400, fontSize: 12 }}> (花费 {raiseCost})</span>
               </span>
+              <button
+                onClick={() => setShowRaise(false)}
+                style={{
+                  background: 'none', border: '1px solid rgba(255,255,255,0.2)',
+                  borderRadius: 8, color: 'rgba(255,255,255,0.55)', fontSize: 11,
+                  padding: '3px 10px', cursor: 'pointer',
+                }}
+              >取消</button>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input
                 type="range" min={minRaise} max={maxRaise} value={actualRaise}
                 onChange={e => setRaiseAmount(Number(e.target.value))}
                 style={{ flex: 1, accentColor: '#eab308', height: 4 }}
+              />
+              <input
+                type="number"
+                min={minRaise} max={maxRaise}
+                value={actualRaise}
+                onChange={e => {
+                  const v = Number(e.target.value);
+                  if (!isNaN(v)) setRaiseAmount(v);
+                }}
+                style={{
+                  width: 64, background: 'rgba(255,255,255,0.08)',
+                  border: `1px solid ${(actualRaise < minRaise || actualRaise > maxRaise) ? '#ef4444' : 'rgba(255,255,255,0.2)'}`,
+                  borderRadius: 8, color: '#f0d060', fontWeight: 700,
+                  fontSize: 13, padding: '4px 6px', textAlign: 'center',
+                  outline: 'none',
+                }}
               />
               <button onClick={() => setRaiseAmount(Math.min(halfPot || minRaise, maxRaise))} style={presetBtn}>½POT</button>
               <button onClick={() => setRaiseAmount(Math.min(room.pot || minRaise, maxRaise))} style={presetBtn}>POT</button>
@@ -559,6 +583,8 @@ export default function GameRoom() {
                 ...actionBtn,
                 background: 'linear-gradient(135deg,#7f1d1d,#991b1b)',
                 boxShadow: '0 4px 14px rgba(127,29,29,0.5)',
+                opacity: showRaise ? 0.35 : 1,
+                pointerEvents: showRaise ? 'none' : 'auto',
               }}>弃牌</button>
 
               <button onClick={() => canCheck ? sendAction('check') : sendAction('call')} style={{
@@ -566,6 +592,8 @@ export default function GameRoom() {
                 background: 'linear-gradient(135deg,#14532d,#166534)',
                 boxShadow: '0 4px 14px rgba(20,83,45,0.5)',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
+                opacity: showRaise ? 0.35 : 1,
+                pointerEvents: showRaise ? 'none' : 'auto',
               }}>
                 <span>{canCheck ? '过牌' : (me && me.chips < toCall ? 'ALL-IN' : '跟注')}</span>
                 {!canCheck && <span style={{ fontSize: 12, opacity: 0.7 }}>{me && me.chips < toCall ? me.chips : toCall}</span>}
