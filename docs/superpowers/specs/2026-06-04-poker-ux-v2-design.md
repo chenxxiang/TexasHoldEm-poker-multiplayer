@@ -60,9 +60,9 @@
 
 ## 3. 胜者动画 + 结算简化
 
-### 动画流程（2.5s）
+### 动画流程（1s）
 `showdown` 事件到达时：
-1. 设 `winAnimating=true`，延迟 2500ms 后设为 false 并展示结算面板
+1. 设 `winAnimating=true`，延迟 1000ms 后设为 false 并展示结算面板
 2. `WinAnimation` 覆盖层：
    - 半透明黑色遮罩
    - 胜者头像所在坐标处：`@keyframes winner-bounce`（上下跳动）+ 头顶 👑 emoji
