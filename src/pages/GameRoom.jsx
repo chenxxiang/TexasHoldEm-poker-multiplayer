@@ -423,6 +423,26 @@ export default function GameRoom() {
               <CommunityCards cards={room.communityCards} />
             </div>
 
+            {/* Hand hint — above community cards */}
+            {myHandHint && room.phase !== 'waiting' && room.phase !== 'settlement' && (
+              <div style={{
+                position: 'absolute', top: '37%', left: '50%',
+                transform: 'translate(-50%, -50%)',
+                zIndex: 6, pointerEvents: 'none',
+              }}>
+                <div style={{
+                  background: 'rgba(0,0,0,0.82)', borderRadius: 12,
+                  padding: '5px 18px',
+                  border: '1.5px solid rgba(212,175,55,0.6)',
+                  color: '#f0d060', fontSize: 17, fontWeight: 800,
+                  whiteSpace: 'nowrap',
+                  boxShadow: '0 2px 12px rgba(0,0,0,0.5)',
+                }}>
+                  💡 {myHandHint}
+                </div>
+              </div>
+            )}
+
             {/* Player avatars — zIndex 20 so SpeechBubbles (z:50) render above hole cards */}
             <PokerTable
               room={room}
@@ -447,15 +467,6 @@ export default function GameRoom() {
                     <Card key={i} card={card} size="md" />
                   ))}
                 </div>
-                {myHandHint && (
-                  <div style={{
-                    background: 'rgba(0,0,0,0.82)', borderRadius: 10,
-                    padding: '2px 10px', border: '1px solid rgba(212,175,55,0.4)',
-                    color: '#f0d060', fontSize: 11, fontWeight: 700,
-                  }}>
-                    💡 {myHandHint}
-                  </div>
-                )}
               </div>
             )}
 
