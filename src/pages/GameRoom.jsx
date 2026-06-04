@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { socket } from '../context/SocketContext';
 import Card from '../components/Card';
+import { playActionSound } from '../helpers/sounds';
 import { Hand } from 'pokersolver';
 
 // ── Speech synthesis: pre-load voices for mobile (Huawei/Android) ──
@@ -368,6 +369,7 @@ export default function GameRoom() {
 
   const sendAction = (action, amount = 0) => {
     setError(''); setShowRaise(false);
+    playActionSound(action);
     socket.emit('playerAction', { roomId, action, amount });
   };
 
@@ -579,18 +581,18 @@ export default function GameRoom() {
         }}>
           {showActionButtons ? (
             <>
-              <button onClick={() => sendAction('fold')} style={{
+              <button className="action-btn" onClick={() => sendAction('fold')} style={{
                 ...actionBtn,
                 background: 'linear-gradient(135deg,#7f1d1d,#991b1b)',
-                boxShadow: '0 4px 14px rgba(127,29,29,0.5)',
+                boxShadow: showRaise ? '0 4px 14px rgba(127,29,29,0.3)' : '0 6px 0 #5a0f0f, 0 8px 16px rgba(127,29,29,0.5)',
                 opacity: showRaise ? 0.35 : 1,
                 pointerEvents: showRaise ? 'none' : 'auto',
               }}>弃牌</button>
 
-              <button onClick={() => canCheck ? sendAction('check') : sendAction('call')} style={{
+              <button className="action-btn" onClick={() => canCheck ? sendAction('check') : sendAction('call')} style={{
                 ...actionBtn, flex: 1.3,
                 background: 'linear-gradient(135deg,#14532d,#166534)',
-                boxShadow: '0 4px 14px rgba(20,83,45,0.5)',
+                boxShadow: showRaise ? '0 4px 14px rgba(20,83,45,0.3)' : '0 6px 0 #0a3018, 0 8px 16px rgba(20,83,45,0.5)',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
                 opacity: showRaise ? 0.35 : 1,
                 pointerEvents: showRaise ? 'none' : 'auto',
@@ -599,7 +601,7 @@ export default function GameRoom() {
                 {!canCheck && <span style={{ fontSize: 12, opacity: 0.7 }}>{me && me.chips < toCall ? me.chips : toCall}</span>}
               </button>
 
-              <button
+              <button className="action-btn"
                 onClick={() => showRaise ? sendAction('raise', actualRaise) : setShowRaise(true)}
                 disabled={!canRaise || (me?.chips ?? 0) <= toCall}
                 style={{
@@ -607,7 +609,7 @@ export default function GameRoom() {
                   background: showRaise
                     ? 'linear-gradient(135deg,#1e40af,#2563eb)'
                     : 'linear-gradient(135deg,#1e3a8a,#1e40af)',
-                  boxShadow: showRaise ? '0 4px 14px rgba(37,99,235,0.7)' : '0 4px 14px rgba(30,58,138,0.45)',
+                  boxShadow: showRaise ? '0 6px 0 #0f1e50, 0 8px 16px rgba(37,99,235,0.7)' : '0 6px 0 #0a1a5e, 0 8px 16px rgba(30,58,138,0.45)',
                   opacity: (!canRaise || (me?.chips ?? 0) <= toCall) ? 0.38 : 1,
                 }}
               >
@@ -668,6 +670,10 @@ export default function GameRoom() {
             70%  { opacity:1; }
             100% { opacity:0; }
           }
+          .action-btn:active {
+            transform: translateY(3px) !important;
+            filter: brightness(0.88) !important;
+          }
         `}</style>
 
         {showTauntPicker && (
@@ -709,7 +715,8 @@ export default function GameRoom() {
 // Shared styles
 const actionBtn = {
   flex: 1, height: 56, borderRadius: 14, border: 'none', cursor: 'pointer',
-  color: '#fff', fontWeight: 700, fontSize: 16, transition: 'opacity 0.15s',
+  color: '#fff', fontWeight: 700, fontSize: 16,
+  transition: 'opacity 0.15s, transform 0.08s, filter 0.08s',
 };
 
 const presetBtn = {
