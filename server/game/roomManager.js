@@ -70,8 +70,8 @@ class RoomManager {
 
     // New player
     if (room.players.length >= 10) return { error: 'ROOM_FULL' };
-    if (room.phase !== 'waiting') return { error: 'GAME_IN_PROGRESS' };
 
+    const midGame = room.phase !== 'waiting';
     room.players.push({
       socketId,
       nickname,
@@ -79,11 +79,11 @@ class RoomManager {
       seatIndex: room.players.length,
       bet: 0,
       totalBet: 0,
-      folded: false,
-      hasActed: false,
+      folded: midGame,
+      hasActed: midGame,
       hasUsedTimeBank: false,
       holeCards: [],
-      status: 'active',
+      status: midGame ? 'spectating' : 'active',
       won: 0,
       raiseCount: 0,
       disconnected: false,

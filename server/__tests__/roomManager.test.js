@@ -105,4 +105,38 @@ describe('RoomManager', () => {
     expect(result.newHostSocketId).toBe('s2');
     expect(rm.getRoom(roomId).hostSocketId).toBe('s2');
   });
+
+  describe('mid-game join', () => {
+    test('allows joining as spectator when game is in progress', () => {
+      const manager = new RoomManager();
+      const room = manager.createRoom('s1', 'Alice', { initialChips: 1000, smallBlind: 10, maxRebuyAmount: 1000 });
+      manager.joinRoom(room.roomId, 's2', 'Bob');
+      manager.startGame(room.roomId);
+
+      const result = manager.joinRoom(room.roomId, 's3', 'Charlie');
+      expect(result.error).toBeUndefined();
+      expect(result.success).toBe(true);
+
+      const r = manager.getRoom(room.roomId);
+      const charlie = r.players.find(p => p.nickname === 'Charlie');
+      expect(charlie).toBeDefined();
+      expect(charlie.status).toBe('spectating');
+      expect(charlie.folded).toBe(true);
+      expect(charlie.hasActed).toBe(true);
+      expect(charlie.holeCards).toEqual([]);
+    });
+
+    test('mid-game join does not disrupt shouldAdvanceStreet', () => {
+      const manager = new RoomManager();
+      const room = manager.createRoom('s1', 'Alice', { initialChips: 1000, smallBlind: 10, maxRebuyAmount: 1000 });
+      manager.joinRoom(room.roomId, 's2', 'Bob');
+      manager.startGame(room.roomId);
+      manager.joinRoom(room.roomId, 's3', 'Charlie');
+
+      const r = manager.getRoom(room.roomId);
+      const active = r.players.filter(p => !p.folded);
+      expect(active.some(p => p.nickname === 'Charlie')).toBe(false);
+      expect(active.length).toBe(2);
+    });
+  });
 });
