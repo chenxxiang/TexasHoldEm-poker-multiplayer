@@ -1,10 +1,10 @@
 const SUIT_SYMBOLS = { s: '♠', h: '♥', d: '♦', c: '♣' };
 
 const SIZES = {
-  sm: { w: 34,  h: 48,  cornerFs: 9,  centerFs: 14 },
-  md: { w: 50,  h: 70,  cornerFs: 11, centerFs: 20 },
-  my: { w: 54,  h: 76,  cornerFs: 12, centerFs: 24 },
-  lg: { w: 62,  h: 88,  cornerFs: 13, centerFs: 28 },
+  sm: { w: 34,  h: 48,  cornerFs: 12, centerFs: 20 },
+  md: { w: 50,  h: 70,  cornerFs: 15, centerFs: 28 },
+  my: { w: 54,  h: 76,  cornerFs: 16, centerFs: 32 },
+  lg: { w: 62,  h: 88,  cornerFs: 18, centerFs: 38 },
 };
 
 export default function Card({ card, size = 'md' }) {
@@ -50,21 +50,19 @@ export default function Card({ card, size = 'md' }) {
         background: 'repeating-linear-gradient(135deg,transparent,transparent 4px,rgba(0,0,0,0.012) 4px,rgba(0,0,0,0.012) 5px)',
       }} />
 
-      {/* Top-left corner */}
+      {/* Top-left corner — value only */}
       <div style={{ fontSize: cornerFs, fontWeight: 800, lineHeight: 1.1, zIndex: 1 }}>
-        <div>{rawValue}</div>
-        <div style={{ fontSize: cornerFs - 1 }}>{symbol}</div>
+        {rawValue}
       </div>
 
-      {/* Center suit */}
+      {/* Center suit — larger */}
       <div style={{ fontSize: centerFs, fontWeight: 700, textAlign: 'center', lineHeight: 1, zIndex: 1 }}>
         {symbol}
       </div>
 
-      {/* Bottom-right corner (rotated) */}
+      {/* Bottom-right corner — value only, rotated */}
       <div style={{ fontSize: cornerFs, fontWeight: 800, lineHeight: 1.1, transform: 'rotate(180deg)', alignSelf: 'flex-end', zIndex: 1 }}>
-        <div>{rawValue}</div>
-        <div style={{ fontSize: cornerFs - 1 }}>{symbol}</div>
+        {rawValue}
       </div>
     </div>
   );
