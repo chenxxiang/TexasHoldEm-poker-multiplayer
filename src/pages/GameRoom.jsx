@@ -283,8 +283,8 @@ export default function GameRoom() {
 
     const onPlayerTaunt = ({ socketId, type, payload }) => {
       if (type === 'voice' && socketId !== socket.id) {
-        try { speakText(payload); } catch {}
         if (navigator.maxTouchPoints > 0) {
+          // Mobile: speech blocked outside user gesture — queue for next touch
           pendingSpeechRef.current = payload;
           const release = () => {
             if (pendingSpeechRef.current) {
@@ -296,6 +296,9 @@ export default function GameRoom() {
           };
           document.addEventListener('touchstart', release, { once: true, passive: true });
           document.addEventListener('click', release, { once: true });
+        } else {
+          // Desktop: direct play allowed (user gesture policy not enforced for speech)
+          try { speakText(payload); } catch {}
         }
       }
       const key = Date.now() + Math.random();
