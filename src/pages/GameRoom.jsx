@@ -162,14 +162,6 @@ export default function GameRoom() {
   const [settlementDeadline, setSettlementDeadline] = useState(null);
   const [settlementCountdown, setSettlementCountdown] = useState(0);
   const [cardReveals, setCardReveals] = useState({});
-  const [myReadyStatus, setMyReadyStatus] = useState(() => {
-    const initRoom = location.state?.room;
-    if (initRoom) {
-      const initMe = initRoom.players.find(p => p.socketId === socket.id);
-      return initMe?.readyStatus || 'pending';
-    }
-    return 'pending';
-  });
   const [tauntBubbles, setTauntBubbles] = useState({});
   const [actionBadges, setActionBadges] = useState({});
   const [showTauntPicker, setShowTauntPicker] = useState(false);
@@ -264,7 +256,6 @@ export default function GameRoom() {
       setSettlementDeadline(null);
       setCardReveals({});
       const me2 = r.players.find(p => p.socketId === socket.id);
-      setMyReadyStatus(me2?.readyStatus || 'pending');
     };
     const onPlayerJoined = ({ room: r }) => setRoom(r);
     const onShowdown = ({ room: r, results, wasMuckWin, settlementDeadline: deadline }) => {
@@ -395,7 +386,7 @@ export default function GameRoom() {
     socket.emit('playerTaunt', { roomId, type, payload });
   };
   const sendRevealCards = () => socket.emit('revealCards', { roomId });
-  const sendQueueNextHand = () => { setMyReadyStatus('queued'); socket.emit('queueForNextHand', { roomId }); };
+  const sendQueueNextHand = () => { socket.emit('queueForNextHand', { roomId }); };
   const handleRebuy = () => { setRebuyError(''); socket.emit('rebuy', { roomId, amount: room.settings.initialChips }); };
 
   const showActionButtons = isMyTurn && me && !me.folded && me.chips > 0 && room.phase !== 'showdown' && room.phase !== 'waiting';
