@@ -106,6 +106,32 @@ const HERO_SEASONS = [
 
 const HEROES = HERO_SEASONS.flatMap(s => s.heroes);
 
+const THEMES = {
+  macau: {
+    id: 'macau',
+    name: '澳门风云',
+    bg: '/poker-table-bg.jpg',
+    text: {},
+  },
+  xianfeng: {
+    id: 'xianfeng',
+    name: '仙风道骨',
+    bg: '/天宫.jpg',
+    text: {
+      fold: '认负', call: '接招', check: '静观', raise: '出招', confirm: '出手',
+      allinBtn: '孤注一掷',
+      allinBadge: '✦ 孤注一掷 ✦',
+      allinPopup: '💥 孤注一掷！',
+      pot: '彩头', chips: '内力',
+      waitingPhase: '仙门未开', preflopPhase: '开局', flopPhase: '展战',
+      turnPhase: '变局', riverPhase: '终局', showdownPhase: '各显神通',
+      startGame: '开坛论剑', readyNext: '再战一局', spectateNext: '旁观修炼',
+      settlement: '胜负已分', heroPickerTitle: '选择你的侠士', heroNoun: '侠士',
+      scoreboard: '武林排行', waitingForHost: '等待掌门发令...',
+    },
+  },
+};
+
 function getPlayerHero(player) {
   if (player.heroId) {
     const found = HEROES.find(h => h.id === player.heroId);
@@ -504,12 +530,23 @@ export default function GameRoom() {
   const showRebuyButton = me && room.phase !== 'waiting' && (me.folded || me.chips === 0);
   const hasMyCards = (me?.holeCards?.length ?? 0) > 0;
 
+  const themeConfig = THEMES[room?.settings?.theme] || THEMES.macau;
+  const tx = (key, def) => themeConfig.text[key] ?? def;
+  const phaseLabelMap = {
+    waiting: tx('waitingPhase', '等待中'),
+    preflop: tx('preflopPhase', '翻牌前'),
+    flop: tx('flopPhase', '翻牌'),
+    turn: tx('turnPhase', '转牌'),
+    river: tx('riverPhase', '河牌'),
+    showdown: tx('showdownPhase', '摊牌'),
+  };
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000', display: 'flex', justifyContent: 'center' }}>
       <div style={{ position: 'relative', width: '100%', maxWidth: 480, height: '100%', overflow: 'hidden', color: '#fff', fontFamily: 'system-ui,-apple-system,sans-serif' }}>
 
         {/* ── Background image (full screen) ── */}
-        <img src="/poker-table-bg.jpg" alt="" style={{
+        <img src={themeConfig.bg} alt="" style={{
           position: 'absolute', top: 0, left: 0,
           width: '100%', height: '100%',
           objectFit: 'cover', objectPosition: 'top center',
@@ -535,7 +572,7 @@ export default function GameRoom() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
             <span style={{ color: '#f0d060', fontFamily: 'monospace', fontWeight: 700, letterSpacing: 3, fontSize: 14 }}>{roomId}</span>
             <span style={{ background: 'rgba(240,208,96,0.18)', color: '#f0d060', fontSize: 11, padding: '2px 8px', borderRadius: 10 }}>
-              {PHASE_LABELS[room.phase]}
+              {phaseLabelMap[room.phase]}
             </span>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -561,7 +598,7 @@ export default function GameRoom() {
                 boxShadow: '0 2px 10px rgba(0,0,0,0.6)',
               }}>
                 <span style={{ width: 13, height: 13, borderRadius: '50%', background: 'linear-gradient(135deg,#f0d060,#c8950a)', display: 'inline-block', flexShrink: 0, boxShadow: '0 1px 3px rgba(0,0,0,0.5)' }} />
-                <span style={{ color: '#f0d060', fontWeight: 700, fontSize: 14 }}>底池 {room.pot}</span>
+                <span style={{ color: '#f0d060', fontWeight: 700, fontSize: 14 }}>{tx('pot', '底池')} {room.pot}</span>
               </div>
             )}
 
@@ -605,6 +642,7 @@ export default function GameRoom() {
               onMyAvatarClick={() => setShowTauntPicker(true)}
               actionBadges={actionBadges}
               raisePopups={raisePopups}
+              theme={themeConfig}
             />
 
             {/* My hole cards */}
@@ -747,7 +785,7 @@ export default function GameRoom() {
                 boxShadow: showRaise ? '0 4px 14px rgba(127,29,29,0.3)' : '0 6px 0 #5a0f0f, 0 8px 16px rgba(127,29,29,0.5)',
                 opacity: showRaise ? 0.35 : 1,
                 pointerEvents: showRaise ? 'none' : 'auto',
-              }}>弃牌</button>
+              }}>{tx('fold', '弃牌')}</button>
 
               <button className="action-btn" onClick={() => canCheck ? sendAction('check') : sendAction('call')} style={{
                 ...actionBtn, flex: 1.3,
@@ -757,7 +795,7 @@ export default function GameRoom() {
                 opacity: showRaise ? 0.35 : 1,
                 pointerEvents: showRaise ? 'none' : 'auto',
               }}>
-                <span>{canCheck ? '过牌' : (me && me.chips < toCall ? 'ALL-IN' : '跟注')}</span>
+                <span>{canCheck ? tx('check', '过牌') : (me && me.chips < toCall ? tx('allinBtn', 'ALL-IN') : tx('call', '跟注'))}</span>
                 {!canCheck && <span style={{ fontSize: 12, opacity: 0.7 }}>{me && me.chips < toCall ? me.chips : toCall}</span>}
               </button>
 
@@ -780,7 +818,7 @@ export default function GameRoom() {
                   opacity: (!canRaise || (me?.chips ?? 0) <= toCall) ? 0.38 : 1,
                 }}
               >
-                {showRaise ? '确认' : '加注'}
+                {showRaise ? tx('confirm', '确认') : tx('raise', '加注')}
               </button>
             </>
           ) : (
@@ -827,9 +865,9 @@ export default function GameRoom() {
               {me && room.phase !== 'waiting' && (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                   <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
-                    <span style={{ color: '#f0d060', fontWeight: 700 }}>筹码 {me.chips}</span>
+                    <span style={{ color: '#f0d060', fontWeight: 700 }}>{tx('chips', '筹码')} {me.chips}</span>
                     {me.bet > 0 && <span style={{ color: '#fde68a' }}>下注 {me.bet}</span>}
-                    {toCall > 0 && <span style={{ color: '#93c5fd' }}>跟注 {toCall}</span>}
+                    {toCall > 0 && <span style={{ color: '#93c5fd' }}>{tx('call', '跟注')} {toCall}</span>}
                   </div>
                   {isMyTurn && toCall > 0 && room.pot > 0 && (
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.38)' }}>
@@ -919,11 +957,11 @@ export default function GameRoom() {
         )}
 
         {room.phase === 'waiting' && (
-          <WaitingRoom room={room} isHost={isHost} mySocketId={mySocketId} roomId={roomId} />
+          <WaitingRoom room={room} isHost={isHost} mySocketId={mySocketId} roomId={roomId} theme={themeConfig} />
         )}
 
         {showScoreboard && (
-          <Scoreboard room={room} mySocketId={mySocketId} onClose={() => setShowScoreboard(false)} />
+          <Scoreboard room={room} mySocketId={mySocketId} onClose={() => setShowScoreboard(false)} theme={themeConfig} />
         )}
 
         {showHistory && (
@@ -945,6 +983,8 @@ export default function GameRoom() {
             onReady={sendReadyForNextHand}
             onSpectate={sendSpectateNextHand}
             onJoinNextHand={sendQueueNextHand}
+            theme={themeConfig}
+            phaseLabelMap={phaseLabelMap}
           />
         )}
       </div>
@@ -967,7 +1007,7 @@ const presetBtn = {
 };
 
 // ── Poker table: only player avatars, no CSS oval ──────────────
-function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtendTime, tauntBubbles, onMyAvatarClick, actionBadges, raisePopups }) {
+function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtendTime, tauntBubbles, onMyAvatarClick, actionBadges, raisePopups, theme }) {
   const n = room.players.length;
   const myIdx = room.players.findIndex(p => p.socketId === mySocketId);
   const orderedPlayers = myIdx >= 0
@@ -1003,6 +1043,7 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
             onAvatarClick={isMe ? onMyAvatarClick : null}
             actionBadge={actionBadges?.[player.socketId]}
             raisePopup={raisePopups?.[player.socketId]}
+            theme={theme}
           />
         );
       })}
@@ -1011,7 +1052,7 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
 }
 
 // ── Avatar with timer ring ─────────────────────────────────────
-function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime, bubble, onAvatarClick, actionBadge, raisePopup }) {
+function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime, bubble, onAvatarClick, actionBadge, raisePopup, theme }) {
   const CIRCUMFERENCE = 2 * Math.PI * 20;
   const duration = timerInfo?.duration || 20;
   const dashOffset = CIRCUMFERENCE * (1 - (isCurrentTurn && countdown > 0 ? countdown / duration : 0));
@@ -1047,9 +1088,9 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
         <div style={{ position: 'relative', width: sz, height: sz }}>
           {/* Floating popups above avatar */}
           {bubble && <SpeechBubble type={bubble.type} payload={bubble.payload} key={bubble.key} />}
-          {raisePopup && <RaisePopup popup={raisePopup} key={raisePopup.key} />}
+          {raisePopup && <RaisePopup popup={raisePopup} theme={theme} key={raisePopup.key} />}
           {!bubble && !raisePopup && actionBadge && <ActionBadge badge={actionBadge} />}
-          {isAllin && !actionBadge && !bubble && !raisePopup && <AllInBadge />}
+          {isAllin && !actionBadge && !bubble && !raisePopup && <AllInBadge theme={theme} />}
 
           <div
             onClick={onAvatarClick}
@@ -1157,7 +1198,8 @@ function ActionBadge({ badge }) {
   );
 }
 
-function RaisePopup({ popup }) {
+function RaisePopup({ popup, theme }) {
+  const tx = (key, def) => theme?.text?.[key] ?? def;
   const isAllin = popup.action === 'allin';
   return (
     <div style={{
@@ -1177,13 +1219,14 @@ function RaisePopup({ popup }) {
         transform: 'translateX(-50%)',
         display: 'block',
       }}>
-        {isAllin ? '💥 ALL-IN!' : `+${popup.amount}`}
+        {isAllin ? tx('allinPopup', '💥 ALL-IN!') : `+${popup.amount}`}
       </div>
     </div>
   );
 }
 
-function AllInBadge() {
+function AllInBadge({ theme }) {
+  const tx = (key, def) => theme?.text?.[key] ?? def;
   return (
     <div style={{
       position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%',
@@ -1203,13 +1246,14 @@ function AllInBadge() {
         transform: 'translateX(-50%)',
         display: 'block',
         animation: 'allin-wobble 0.65s ease-in-out infinite',
-      }}>✦ ALL-IN ✦</div>
+      }}>{tx('allinBadge', '✦ ALL-IN ✦')}</div>
     </div>
   );
 }
 
 // ── Scoreboard overlay ─────────────────────────────────────────
-function Scoreboard({ room, mySocketId, onClose }) {
+function Scoreboard({ room, mySocketId, onClose, theme }) {
+  const tx = (key, def) => theme?.text?.[key] ?? def;
   const sorted = [...room.players].sort((a, b) => b.chips - a.chips);
   return (
     <div style={{
@@ -1222,7 +1266,7 @@ function Scoreboard({ room, mySocketId, onClose }) {
         maxHeight: '80vh', overflow: 'auto',
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <h3 style={{ color: '#f0d060', fontWeight: 700, fontSize: 18, margin: 0 }}>📊 记分牌</h3>
+          <h3 style={{ color: '#f0d060', fontWeight: 700, fontSize: 18, margin: 0 }}>📊 {tx('scoreboard', '记分牌')}</h3>
           <button onClick={onClose} style={{ color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
@@ -1281,7 +1325,10 @@ function formatLogEntry(entry) {
 function SettlementScreen({
   settlementData, room, mySocketId, settlementCountdown,
   cardReveals, onRevealCards, onReady, onSpectate, onJoinNextHand,
+  theme, phaseLabelMap,
 }) {
+  const tx = (key, def) => theme?.text?.[key] ?? def;
+  const phaseLabel = (phase) => phaseLabelMap?.[phase] || PHASE_LABELS[phase];
   const { results = [], actionLog = [], potBreakdown = [] } = settlementData || {};
   const me = room?.players?.find(p => p.socketId === mySocketId);
   const myReadyStatus = me?.readyStatus || 'pending';
@@ -1303,7 +1350,7 @@ function SettlementScreen({
 
         {/* Title + live countdown */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 style={{ color: '#f0d060', fontWeight: 700, fontSize: 19, margin: 0 }}>🃏 本局结算</h2>
+          <h2 style={{ color: '#f0d060', fontWeight: 700, fontSize: 19, margin: 0 }}>🃏 {tx('settlement', '本局结算')}</h2>
           {settlementCountdown > 0 && (
             <span style={{ color: 'rgba(255,255,255,0.38)', fontSize: 13 }}>⏱ {settlementCountdown}s</span>
           )}
@@ -1418,7 +1465,7 @@ function SettlementScreen({
                   background: 'linear-gradient(135deg,#14532d,#166534)', color: '#fff',
                   fontWeight: 700, fontSize: 15,
                 }}
-              >✅ 准备下一局</button>
+              >✅ {tx('readyNext', '准备下一局')}</button>
               <button
                 onClick={onSpectate}
                 style={{
@@ -1426,7 +1473,7 @@ function SettlementScreen({
                   background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.2)',
                   color: 'rgba(255,255,255,0.7)', fontWeight: 600, fontSize: 15,
                 }}
-              >👁 本局观战</button>
+              >👁 {tx('spectateNext', '本局观战')}</button>
             </>
           )}
           {myReadyStatus === 'ready' && (
@@ -1473,7 +1520,7 @@ function SettlementScreen({
               {phasesWithActions.map(phase => (
                 <div key={phase} style={{ display: 'flex', gap: 6, alignItems: 'baseline', flexWrap: 'wrap' }}>
                   <span style={{ color: '#fbbf24', fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
-                    [{PHASE_LABELS[phase]}]
+                    [{phaseLabel(phase)}]
                   </span>
                   <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: 11, lineHeight: 1.5 }}>
                     {grouped[phase].map(formatLogEntry).join(' · ')}
@@ -1504,7 +1551,8 @@ function SettlementScreen({
 }
 
 // ── Waiting room overlay ───────────────────────────────────────
-function WaitingRoom({ room, isHost, mySocketId, roomId }) {
+function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
+  const tx = (key, def) => theme?.text?.[key] ?? def;
   const [showHeroPicker, setShowHeroPicker] = useState(false);
   const me = room.players.find(p => p.socketId === mySocketId);
   const myHero = me?.heroId ? HEROES.find(h => h.id === me.heroId) : null;
@@ -1535,9 +1583,9 @@ function WaitingRoom({ room, isHost, mySocketId, roomId }) {
           {myHero ? (
             <>
               <img src={myHero.img} style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' }} alt="" />
-              {myHero.name} · 更换英雄
+              {myHero.name} · 更换{tx('heroNoun', '英雄')}
             </>
-          ) : '🦸 选择你的英雄'}
+          ) : `🦸 ${tx('heroPickerTitle', '选择你的英雄')}`}
         </button>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
@@ -1594,11 +1642,11 @@ function WaitingRoom({ room, isHost, mySocketId, roomId }) {
               opacity: room.players.length < 2 ? 0.55 : 1,
             }}
           >
-            {room.players.length < 2 ? `等待更多玩家 (${room.players.length}/2)` : '开始游戏'}
+            {room.players.length < 2 ? `等待更多玩家 (${room.players.length}/2)` : tx('startGame', '开始游戏')}
           </button>
         ) : (
           <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.38)', fontSize: 14, padding: '10px 0' }}>
-            等待房主开始游戏...
+            {tx('waitingForHost', '等待房主开始游戏...')}
           </div>
         )}
       </div>
@@ -1613,6 +1661,7 @@ function WaitingRoom({ room, isHost, mySocketId, roomId }) {
             setShowHeroPicker(false);
           }}
           onClose={() => setShowHeroPicker(false)}
+          theme={theme}
         />
       )}
     </div>
@@ -1620,7 +1669,8 @@ function WaitingRoom({ room, isHost, mySocketId, roomId }) {
 }
 
 // ── 英雄选择器 ────────────────────────────────────────────────
-function HeroPicker({ players, mySocketId, myHeroId, onSelect, onClose }) {
+function HeroPicker({ players, mySocketId, myHeroId, onSelect, onClose, theme }) {
+  const tx = (key, def) => theme?.text?.[key] ?? def;
   const claimedByOthers = new Set(
     players.filter(p => p.heroId && p.socketId !== mySocketId).map(p => p.heroId)
   );
@@ -1643,7 +1693,7 @@ function HeroPicker({ players, mySocketId, myHeroId, onSelect, onClose }) {
           padding: '16px 20px 12px', flexShrink: 0,
           borderBottom: '1px solid rgba(255,255,255,0.07)',
         }}>
-          <h3 style={{ color: '#f0d060', fontWeight: 700, fontSize: 18, margin: 0 }}>🦸 选择你的英雄</h3>
+          <h3 style={{ color: '#f0d060', fontWeight: 700, fontSize: 18, margin: 0 }}>🦸 {tx('heroPickerTitle', '选择你的英雄')}</h3>
           <button onClick={onClose} style={{ color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none', fontSize: 24, cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
         </div>
 

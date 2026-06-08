@@ -2,6 +2,11 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { socket } from '../context/SocketContext';
 
+const THEME_OPTIONS = [
+  { id: 'macau', name: '澳门风云', icon: '🃏', desc: '经典赌城风格', accent: '#f0d060', previewBg: 'linear-gradient(135deg,#0a1a08 0%,#1a3a14 50%,#2d5a20 100%)' },
+  { id: 'xianfeng', name: '仙风道骨', icon: '⛩️', desc: '仙侠江湖风格', accent: '#c4b5fd', previewBg: 'linear-gradient(135deg,#060a1e 0%,#0d1540 50%,#1a1a6e 100%)' },
+];
+
 export default function HomePage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState('join');
@@ -11,6 +16,7 @@ export default function HomePage() {
   const [smallBlind, setSmallBlind] = useState(10);
   const [maxRebuy, setMaxRebuy] = useState(1000);
   const [actionTime, setActionTime] = useState(20);
+  const [theme, setTheme] = useState('macau');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -50,7 +56,7 @@ export default function HomePage() {
     localStorage.setItem('poker_nickname', nickname.trim());
     socket.emit('createRoom', {
       nickname: nickname.trim(),
-      settings: { initialChips, smallBlind, maxRebuyAmount: maxRebuy, actionTime },
+      settings: { initialChips, smallBlind, maxRebuyAmount: maxRebuy, actionTime, theme },
     });
   };
 
@@ -148,6 +154,46 @@ export default function HomePage() {
               <p className="text-gold/40 text-xs text-center">
                 大盲注 {smallBlind * 2} | 初始筹码 {initialChips} | 时限 {actionTime}s
               </p>
+
+              {/* Theme picker */}
+              <div>
+                <p style={{ color: 'rgba(240,208,96,0.5)', fontSize: 12, marginBottom: 8 }}>选择主题</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  {THEME_OPTIONS.map(t => {
+                    const selected = theme === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => setTheme(t.id)}
+                        style={{
+                          background: selected ? `${t.previewBg}` : 'rgba(255,255,255,0.04)',
+                          border: `2px solid ${selected ? t.accent : 'rgba(255,255,255,0.1)'}`,
+                          borderRadius: 14, padding: '14px 8px', cursor: 'pointer',
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
+                          transition: 'all 0.15s', position: 'relative',
+                          boxShadow: selected ? `0 0 14px ${t.accent}40` : 'none',
+                        }}
+                      >
+                        {selected && (
+                          <div style={{
+                            position: 'absolute', top: 6, right: 8,
+                            width: 16, height: 16, borderRadius: '50%',
+                            background: t.accent, color: '#000',
+                            fontSize: 10, fontWeight: 900,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>✓</div>
+                        )}
+                        <span style={{ fontSize: 30 }}>{t.icon}</span>
+                        <span style={{ fontWeight: 700, fontSize: 14, color: selected ? t.accent : 'rgba(255,255,255,0.8)' }}>
+                          {t.name}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.38)' }}>{t.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <button
                 onClick={handleCreate}
                 disabled={loading}
