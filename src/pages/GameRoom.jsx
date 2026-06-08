@@ -72,18 +72,25 @@ const PHASE_LABELS = {
 };
 const AVATARS = ['🐯','🦁','🐻','🐼','🐨','🦊','🐺','🐸','🐮','🐷'];
 
+const TITLE_TYPE_STYLE = {
+  '尊号': { bg: '#7c3aed', color: '#fff' },
+  '仙号': { bg: '#db2777', color: '#fff' },
+  '道号': { bg: '#0d9488', color: '#fff' },
+};
+
 const HERO_SEASONS = [
   {
     season: 'S1',
     heroes: [
-      { id: '保龙大帝', name: '保龙大帝', img: '/heroes/保龙大帝.png' },
-      { id: '大胖',    name: '大胖',    img: '/heroes/大胖.png' },
-      { id: '撸哥',    name: '撸哥',    img: '/heroes/撸哥.png' },
-      { id: '标桑',    name: '标桑',    img: '/heroes/标桑.png' },
-      { id: '翔总',    name: '翔总',    img: '/heroes/翔总.png' },
-      { id: '陈少钧',        name: '陈少钧',        img: '/heroes/陈少钧.png' },
-      { id: '韬少',          name: '韬少',          img: '/heroes/韬少.png' },
-      { id: '大傻(美少女形态)', name: '大傻(美少女形态)', img: '/heroes/大傻(美少女形态).png' },
+      { id: '保龙大帝',        name: '天龙',  img: '/heroes/保龙大帝.png',        title: '苍穹龙尊', titleType: '尊号', desc: '朝翔九霄，镇压四方，龙威震天地。' },
+      { id: '撸哥',           name: '卢震',  img: '/heroes/撸哥.png',            title: '雷渊震尊', titleType: '尊号', desc: '雷法通玄，震慑八荒，一声轰鸣动九渊。' },
+      { id: '陈少钧',          name: '陈少钧', img: '/heroes/陈少钧.png',          title: '玉衡天君', titleType: '尊号', desc: '少年持衡，权衡天地，执掌乾坤正道。' },
+      { id: '翔总',            name: '陈翔',  img: '/heroes/翔总.png',            title: '御风剑仙', titleType: '仙号', desc: '踏剑御风，凌空而翔，剑气贯日月。' },
+      { id: '思婷',            name: '思婷',  img: '/heroes/思婷.png',            title: '霜华仙子', titleType: '仙号', desc: '思若幽兰，姿若霜华，清冷绝尘世间。' },
+      { id: '标桑',            name: '阿标',  img: '/heroes/标桑.png',            title: '玄风游客', titleType: '道号', desc: '来去无踪，身似浮云，随风而游四海。' },
+      { id: '大胖',            name: '大胖',  img: '/heroes/大胖.png',            title: '圆满道君', titleType: '道号', desc: '体魄浑圆，功德圆满，福泽天下苍生。' },
+      { id: '韬少',            name: '文韬',  img: '/heroes/韬少.png',            title: '藏锋散人', titleType: '道号', desc: '韬光养晦，文蕴深藏，一朝出鞘惊天地。' },
+      { id: '大傻(美少女形态)', name: '大傻',  img: '/heroes/大傻(美少女形态).png', title: '混沌真人', titleType: '道号', desc: '大智若愚，混沌藏道，傻中自有乾坤。' },
     ],
   },
   {
@@ -1620,84 +1627,164 @@ function HeroPicker({ players, mySocketId, myHeroId, onSelect, onClose }) {
   const SEASON_COLORS = { S1: '#f0d060', S2: '#a78bfa' };
 
   return (
-    <div style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.9)' }} onClick={onClose}>
+    <div style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.92)' }} onClick={onClose}>
       <div style={{
-        position: 'absolute', top: '50%', left: '50%',
-        transform: 'translate(-50%,-50%)',
-        background: '#1a2f4a', borderRadius: 22, padding: 20,
-        border: '1px solid rgba(240,208,96,0.28)', width: '90%', maxWidth: 340,
-        maxHeight: '82vh', overflowY: 'auto',
+        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+        display: 'flex', flexDirection: 'column',
+        margin: '24px 16px',
+        background: '#111c30', borderRadius: 22,
+        border: '1px solid rgba(240,208,96,0.22)',
+        overflow: 'hidden',
       }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+
+        {/* 固定标题栏 */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 20px 12px', flexShrink: 0,
+          borderBottom: '1px solid rgba(255,255,255,0.07)',
+        }}>
           <h3 style={{ color: '#f0d060', fontWeight: 700, fontSize: 18, margin: 0 }}>🦸 选择你的英雄</h3>
-          <button onClick={onClose} style={{ color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
+          <button onClick={onClose} style={{ color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none', fontSize: 24, cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
         </div>
 
-        {HERO_SEASONS.map(({ season, heroes }) => (
-          <div key={season} style={{ marginBottom: 16 }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
-            }}>
-              <span style={{
-                background: SEASON_COLORS[season] || '#f0d060',
-                color: '#0a0f1a', fontWeight: 900, fontSize: 11,
-                padding: '2px 9px', borderRadius: 8,
-              }}>{season}</span>
-              <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.1)' }} />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
-              {heroes.map(hero => {
-                const isTaken = claimedByOthers.has(hero.id);
-                const isSelected = hero.id === myHeroId;
-                const accentColor = SEASON_COLORS[season] || '#f0d060';
-                return (
-                  <button
-                    key={hero.id}
-                    onClick={() => !isTaken && onSelect(hero.id)}
-                    disabled={isTaken}
-                    style={{
-                      background: isSelected ? `rgba(${season === 'S2' ? '167,139,250' : '240,208,96'},0.18)` : 'rgba(255,255,255,0.06)',
-                      border: `2px solid ${isSelected ? accentColor : isTaken ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.15)'}`,
-                      borderRadius: 14, padding: '10px 4px',
-                      cursor: isTaken ? 'not-allowed' : 'pointer',
-                      opacity: isTaken ? 0.32 : 1,
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                    }}
-                  >
-                    <div style={{ position: 'relative', width: 62, height: 62 }}>
-                      <img src={hero.img} alt={hero.name} style={{
-                        width: 62, height: 62, borderRadius: '50%', objectFit: 'cover',
-                        border: `2.5px solid ${isSelected ? accentColor : 'transparent'}`,
-                      }} />
-                      {isTaken && (
-                        <div style={{
-                          position: 'absolute', inset: 0, borderRadius: '50%',
-                          background: 'rgba(0,0,0,0.55)',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 11, color: '#f87171', fontWeight: 700,
-                        }}>已选</div>
-                      )}
-                      {isSelected && (
-                        <div style={{
-                          position: 'absolute', bottom: -2, right: -2,
-                          width: 18, height: 18, borderRadius: '50%',
-                          background: accentColor, color: '#000',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 11, fontWeight: 900,
-                        }}>✓</div>
-                      )}
-                    </div>
-                    <span style={{ color: isSelected ? accentColor : '#e2e8f0', fontSize: 12, fontWeight: 600 }}>{hero.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+        {/* 可滚动内容区 */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 16px' }}>
+          {HERO_SEASONS.map(({ season, heroes }) => (
+            <div key={season} style={{ marginBottom: 18 }}>
+              {/* 赛季标题 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span style={{
+                  background: SEASON_COLORS[season] || '#f0d060',
+                  color: '#0a0f1a', fontWeight: 900, fontSize: 11,
+                  padding: '2px 10px', borderRadius: 8,
+                }}>{season}</span>
+                <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
+              </div>
 
-        <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, textAlign: 'center', margin: '4px 0 0' }}>
-          未选择则随机分配 · 进入游戏后名字以房间昵称为准
-        </p>
+              {/* S1: 每行一张大卡片 */}
+              {season === 'S1' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {heroes.map(hero => {
+                    const isTaken = claimedByOthers.has(hero.id);
+                    const isSelected = hero.id === myHeroId;
+                    const ts = TITLE_TYPE_STYLE[hero.titleType] || { bg: '#374151', color: '#fff' };
+                    return (
+                      <button
+                        key={hero.id}
+                        onClick={() => !isTaken && onSelect(hero.id)}
+                        disabled={isTaken}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 14,
+                          background: isSelected ? 'rgba(240,208,96,0.12)' : 'rgba(255,255,255,0.04)',
+                          border: `1.5px solid ${isSelected ? '#f0d060' : isTaken ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)'}`,
+                          borderRadius: 16, padding: '10px 14px',
+                          cursor: isTaken ? 'not-allowed' : 'pointer',
+                          opacity: isTaken ? 0.35 : 1,
+                          textAlign: 'left', width: '100%',
+                        }}
+                      >
+                        {/* 大头像 */}
+                        <div style={{ position: 'relative', flexShrink: 0 }}>
+                          <img src={hero.img} alt={hero.name} style={{
+                            width: 68, height: 68, borderRadius: '50%', objectFit: 'cover',
+                            border: `2.5px solid ${isSelected ? '#f0d060' : isTaken ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.2)'}`,
+                          }} />
+                          {isTaken && (
+                            <div style={{
+                              position: 'absolute', inset: 0, borderRadius: '50%',
+                              background: 'rgba(0,0,0,0.6)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 12, color: '#f87171', fontWeight: 700,
+                            }}>已选</div>
+                          )}
+                          {isSelected && (
+                            <div style={{
+                              position: 'absolute', bottom: 0, right: 0,
+                              width: 20, height: 20, borderRadius: '50%',
+                              background: '#f0d060', color: '#000',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 12, fontWeight: 900, border: '2px solid #111c30',
+                            }}>✓</div>
+                          )}
+                        </div>
+
+                        {/* 文字信息 */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+                            <span style={{ color: isSelected ? '#f0d060' : '#fff', fontWeight: 700, fontSize: 15 }}>{hero.name}</span>
+                            {hero.title && <span style={{ color: 'rgba(255,255,255,0.55)', fontWeight: 800, fontSize: 14 }}>{hero.title}</span>}
+                            {hero.titleType && (
+                              <span style={{
+                                background: ts.bg, color: ts.color,
+                                fontSize: 10, fontWeight: 700,
+                                padding: '1px 6px', borderRadius: 6, flexShrink: 0,
+                              }}>{hero.titleType}</span>
+                            )}
+                          </div>
+                          {hero.desc && (
+                            <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, lineHeight: 1.5 }}>{hero.desc}</div>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                /* S2: 3列小格子 */
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+                  {heroes.map(hero => {
+                    const isTaken = claimedByOthers.has(hero.id);
+                    const isSelected = hero.id === myHeroId;
+                    return (
+                      <button
+                        key={hero.id}
+                        onClick={() => !isTaken && onSelect(hero.id)}
+                        disabled={isTaken}
+                        style={{
+                          background: isSelected ? 'rgba(167,139,250,0.18)' : 'rgba(255,255,255,0.06)',
+                          border: `2px solid ${isSelected ? '#a78bfa' : isTaken ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.15)'}`,
+                          borderRadius: 14, padding: '10px 4px',
+                          cursor: isTaken ? 'not-allowed' : 'pointer',
+                          opacity: isTaken ? 0.32 : 1,
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                        }}
+                      >
+                        <div style={{ position: 'relative', width: 62, height: 62 }}>
+                          <img src={hero.img} alt={hero.name} style={{
+                            width: 62, height: 62, borderRadius: '50%', objectFit: 'cover',
+                            border: `2.5px solid ${isSelected ? '#a78bfa' : 'transparent'}`,
+                          }} />
+                          {isTaken && (
+                            <div style={{
+                              position: 'absolute', inset: 0, borderRadius: '50%',
+                              background: 'rgba(0,0,0,0.55)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 11, color: '#f87171', fontWeight: 700,
+                            }}>已选</div>
+                          )}
+                          {isSelected && (
+                            <div style={{
+                              position: 'absolute', bottom: -2, right: -2,
+                              width: 18, height: 18, borderRadius: '50%',
+                              background: '#a78bfa', color: '#000',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 11, fontWeight: 900,
+                            }}>✓</div>
+                          )}
+                        </div>
+                        <span style={{ color: isSelected ? '#a78bfa' : '#e2e8f0', fontSize: 12, fontWeight: 600 }}>{hero.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
+
+          <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, textAlign: 'center', margin: '4px 0 0' }}>
+            未选择则随机分配 · 进入游戏后名字以房间昵称为准
+          </p>
+        </div>
       </div>
     </div>
   );
