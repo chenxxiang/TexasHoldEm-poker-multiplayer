@@ -72,15 +72,31 @@ const PHASE_LABELS = {
 };
 const AVATARS = ['🐯','🦁','🐻','🐼','🐨','🦊','🐺','🐸','🐮','🐷'];
 
-const HEROES = [
-  { id: '保龙大帝', name: '保龙大帝', img: '/heroes/保龙大帝.png' },
-  { id: '大胖',    name: '大胖',    img: '/heroes/大胖.png' },
-  { id: '撸哥',    name: '撸哥',    img: '/heroes/撸哥.png' },
-  { id: '标桑',    name: '标桑',    img: '/heroes/标桑.png' },
-  { id: '翔总',    name: '翔总',    img: '/heroes/翔总.png' },
-  { id: '陈少钧',  name: '陈少钧',  img: '/heroes/陈少钧.png' },
-  { id: '韬少',    name: '韬少',    img: '/heroes/韬少.png' },
+const HERO_SEASONS = [
+  {
+    season: 'S1',
+    heroes: [
+      { id: '保龙大帝', name: '保龙大帝', img: '/heroes/保龙大帝.png' },
+      { id: '大胖',    name: '大胖',    img: '/heroes/大胖.png' },
+      { id: '撸哥',    name: '撸哥',    img: '/heroes/撸哥.png' },
+      { id: '标桑',    name: '标桑',    img: '/heroes/标桑.png' },
+      { id: '翔总',    name: '翔总',    img: '/heroes/翔总.png' },
+      { id: '陈少钧',  name: '陈少钧',  img: '/heroes/陈少钧.png' },
+      { id: '韬少',    name: '韬少',    img: '/heroes/韬少.png' },
+    ],
+  },
+  {
+    season: 'S2',
+    heroes: [
+      { id: '徐P',   name: '徐P',   img: '/heroes/徐P.png' },
+      { id: '牢丁',  name: '牢丁',  img: '/heroes/牢丁.png' },
+      { id: '？？',  name: '？？',  img: '/heroes/？？.png' },
+      { id: '？？？', name: '？？？', img: '/heroes/？？？.png' },
+    ],
+  },
 ];
+
+const HEROES = HERO_SEASONS.flatMap(s => s.heroes);
 
 function getPlayerHero(player) {
   if (player.heroId) {
@@ -1600,6 +1616,8 @@ function HeroPicker({ players, mySocketId, myHeroId, onSelect, onClose }) {
   const claimedByOthers = new Set(
     players.filter(p => p.heroId && p.socketId !== mySocketId).map(p => p.heroId)
   );
+  const SEASON_COLORS = { S1: '#f0d060', S2: '#a78bfa' };
+
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.9)' }} onClick={onClose}>
       <div style={{
@@ -1613,53 +1631,70 @@ function HeroPicker({ players, mySocketId, myHeroId, onSelect, onClose }) {
           <h3 style={{ color: '#f0d060', fontWeight: 700, fontSize: 18, margin: 0 }}>🦸 选择你的英雄</h3>
           <button onClick={onClose} style={{ color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
-          {HEROES.map(hero => {
-            const isTaken = claimedByOthers.has(hero.id);
-            const isSelected = hero.id === myHeroId;
-            return (
-              <button
-                key={hero.id}
-                onClick={() => !isTaken && onSelect(hero.id)}
-                disabled={isTaken}
-                style={{
-                  background: isSelected ? 'rgba(240,208,96,0.22)' : 'rgba(255,255,255,0.06)',
-                  border: `2px solid ${isSelected ? '#f0d060' : isTaken ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.15)'}`,
-                  borderRadius: 14, padding: '10px 4px',
-                  cursor: isTaken ? 'not-allowed' : 'pointer',
-                  opacity: isTaken ? 0.32 : 1,
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                }}
-              >
-                <div style={{ position: 'relative', width: 62, height: 62 }}>
-                  <img src={hero.img} alt={hero.name} style={{
-                    width: 62, height: 62, borderRadius: '50%', objectFit: 'cover',
-                    border: isSelected ? '2.5px solid #f0d060' : '2.5px solid transparent',
-                  }} />
-                  {isTaken && (
-                    <div style={{
-                      position: 'absolute', inset: 0, borderRadius: '50%',
-                      background: 'rgba(0,0,0,0.55)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 11, color: '#f87171', fontWeight: 700,
-                    }}>已选</div>
-                  )}
-                  {isSelected && (
-                    <div style={{
-                      position: 'absolute', bottom: -2, right: -2,
-                      width: 18, height: 18, borderRadius: '50%',
-                      background: '#f0d060', color: '#000',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 11, fontWeight: 900,
-                    }}>✓</div>
-                  )}
-                </div>
-                <span style={{ color: isSelected ? '#f0d060' : '#e2e8f0', fontSize: 12, fontWeight: 600 }}>{hero.name}</span>
-              </button>
-            );
-          })}
-        </div>
-        <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, textAlign: 'center', margin: '12px 0 0' }}>
+
+        {HERO_SEASONS.map(({ season, heroes }) => (
+          <div key={season} style={{ marginBottom: 16 }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
+            }}>
+              <span style={{
+                background: SEASON_COLORS[season] || '#f0d060',
+                color: '#0a0f1a', fontWeight: 900, fontSize: 11,
+                padding: '2px 9px', borderRadius: 8,
+              }}>{season}</span>
+              <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.1)' }} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+              {heroes.map(hero => {
+                const isTaken = claimedByOthers.has(hero.id);
+                const isSelected = hero.id === myHeroId;
+                const accentColor = SEASON_COLORS[season] || '#f0d060';
+                return (
+                  <button
+                    key={hero.id}
+                    onClick={() => !isTaken && onSelect(hero.id)}
+                    disabled={isTaken}
+                    style={{
+                      background: isSelected ? `rgba(${season === 'S2' ? '167,139,250' : '240,208,96'},0.18)` : 'rgba(255,255,255,0.06)',
+                      border: `2px solid ${isSelected ? accentColor : isTaken ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.15)'}`,
+                      borderRadius: 14, padding: '10px 4px',
+                      cursor: isTaken ? 'not-allowed' : 'pointer',
+                      opacity: isTaken ? 0.32 : 1,
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                    }}
+                  >
+                    <div style={{ position: 'relative', width: 62, height: 62 }}>
+                      <img src={hero.img} alt={hero.name} style={{
+                        width: 62, height: 62, borderRadius: '50%', objectFit: 'cover',
+                        border: `2.5px solid ${isSelected ? accentColor : 'transparent'}`,
+                      }} />
+                      {isTaken && (
+                        <div style={{
+                          position: 'absolute', inset: 0, borderRadius: '50%',
+                          background: 'rgba(0,0,0,0.55)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 11, color: '#f87171', fontWeight: 700,
+                        }}>已选</div>
+                      )}
+                      {isSelected && (
+                        <div style={{
+                          position: 'absolute', bottom: -2, right: -2,
+                          width: 18, height: 18, borderRadius: '50%',
+                          background: accentColor, color: '#000',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 11, fontWeight: 900,
+                        }}>✓</div>
+                      )}
+                    </div>
+                    <span style={{ color: isSelected ? accentColor : '#e2e8f0', fontSize: 12, fontWeight: 600 }}>{hero.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, textAlign: 'center', margin: '4px 0 0' }}>
           未选择则随机分配 · 进入游戏后名字以房间昵称为准
         </p>
       </div>
