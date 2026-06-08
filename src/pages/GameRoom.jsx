@@ -117,6 +117,7 @@ const THEMES = {
     id: 'xianfeng',
     name: '仙风道骨',
     bg: '/天宫.jpg',
+    bgStyle: { top: '-18%', height: '118%' },
     text: {
       fold: '认负', call: '接招', check: '静观', raise: '出招', confirm: '出手',
       allinBtn: '孤注一掷',
@@ -551,6 +552,7 @@ export default function GameRoom() {
           width: '100%', height: '100%',
           objectFit: 'cover', objectPosition: 'top center',
           zIndex: 0,
+          ...themeConfig.bgStyle,
         }} />
         {/* Dark gradient at bottom so action buttons remain readable */}
         <div style={{
