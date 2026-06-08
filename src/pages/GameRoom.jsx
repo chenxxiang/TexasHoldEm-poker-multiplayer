@@ -81,8 +81,9 @@ const HERO_SEASONS = [
       { id: '撸哥',    name: '撸哥',    img: '/heroes/撸哥.png' },
       { id: '标桑',    name: '标桑',    img: '/heroes/标桑.png' },
       { id: '翔总',    name: '翔总',    img: '/heroes/翔总.png' },
-      { id: '陈少钧',  name: '陈少钧',  img: '/heroes/陈少钧.png' },
-      { id: '韬少',    name: '韬少',    img: '/heroes/韬少.png' },
+      { id: '陈少钧',        name: '陈少钧',        img: '/heroes/陈少钧.png' },
+      { id: '韬少',          name: '韬少',          img: '/heroes/韬少.png' },
+      { id: '大傻(美少女形态)', name: '大傻(美少女形态)', img: '/heroes/大傻(美少女形态).png' },
     ],
   },
   {
