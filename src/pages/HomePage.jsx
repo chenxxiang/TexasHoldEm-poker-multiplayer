@@ -47,6 +47,7 @@ export default function HomePage() {
     if (smallBlind < 1) { setError('小盲注至少1'); return; }
     setError('');
     setLoading(true);
+    localStorage.setItem('poker_nickname', nickname.trim());
     socket.emit('createRoom', {
       nickname: nickname.trim(),
       settings: { initialChips, smallBlind, maxRebuyAmount: maxRebuy, actionTime },
@@ -58,6 +59,7 @@ export default function HomePage() {
     if (!roomCode.trim()) { setError('请输入房间号'); return; }
     setError('');
     setLoading(true);
+    localStorage.setItem('poker_nickname', nickname.trim());
     socket.emit('joinRoom', {
       roomId: roomCode.trim().toUpperCase(),
       nickname: nickname.trim(),

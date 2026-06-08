@@ -1,6 +1,7 @@
 const SUIT_SYMBOLS = { s: '♠', h: '♥', d: '♦', c: '♣' };
 
 const SIZES = {
+  xs: { w: 24,  h: 34,  cornerFs: 9,  centerFs: 14 },
   sm: { w: 34,  h: 48,  cornerFs: 12, centerFs: 20 },
   md: { w: 50,  h: 70,  cornerFs: 15, centerFs: 28 },
   my: { w: 54,  h: 76,  cornerFs: 16, centerFs: 32 },

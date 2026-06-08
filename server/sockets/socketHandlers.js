@@ -22,8 +22,21 @@ module.exports = (io, socket) => {
     socket.join(roomId);
 
     if (result.reconnected) {
-      socket.emit('joinedRoom', { room: sanitizeRoom(result.room, socket.id) });
+      const room = result.room;
+      socket.emit('joinedRoom', { room: sanitizeRoom(room, socket.id) });
       io.to(roomId).emit('playerReconnected', { nickname, socketId: socket.id });
+      if (room.phase === 'settlement' && room._settlementBaseResults) {
+        const results = recomputeSettlementResults(room, socket.id);
+        socket.emit('showdown', {
+          room: sanitizeRoom(room, socket.id),
+          results,
+          wasMuckWin: room._settlementWasMuckWin,
+          settlementDeadline: room._settlementDeadline,
+          potBreakdown: room._potBreakdown || [],
+          isReconnect: true,
+          actionLog: room._actionLog || [],
+        });
+      }
       return;
     }
 
@@ -42,7 +55,27 @@ module.exports = (io, socket) => {
     const player = room.players.find(p => p.socketId === socket.id);
     if (!player) return;
     socket.join(roomId);
-    socket.emit('gameStateUpdate', sanitizeRoom(room, socket.id));
+    if (room.phase === 'settlement' && room._settlementBaseResults) {
+      const results = recomputeSettlementResults(room, socket.id);
+      socket.emit('showdown', {
+        room: sanitizeRoom(room, socket.id),
+        results,
+        wasMuckWin: room._settlementWasMuckWin,
+        settlementDeadline: room._settlementDeadline,
+        potBreakdown: room._potBreakdown || [],
+        isReconnect: true,
+        actionLog: room._actionLog || [],
+      });
+    } else {
+      socket.emit('gameStateUpdate', { room: sanitizeRoom(room, socket.id) });
+    }
+  });
+
+  // ── 获取手牌历史 ──────────────────────────────────────────
+  socket.on('getHandHistory', ({ roomId }) => {
+    const room = roomManager.getRoom(roomId);
+    if (!room) return;
+    socket.emit('handHistory', { history: room.handHistory || [] });
   });
 
   // ── 开始游戏（房主触发，仅第一局需要手动）────────────────
@@ -60,25 +93,38 @@ module.exports = (io, socket) => {
   socket.on('playerAction', ({ roomId, action, amount }) => {
     const room = roomManager.getRoom(roomId);
     if (!room) return;
-    const actor = room.players[room.currentTurnIndex];
-    if (!actor || actor.socketId !== socket.id) return;
 
-    timerManager.clearTimer(socket.id);
+    // Race condition guard: prevent double-processing
+    if (room._processing) return;
+    room._processing = true;
+
+    const actor = room.players[room.currentTurnIndex];
+    if (!actor || actor.socketId !== socket.id) {
+      room._processing = false;
+      return;
+    }
+
+    timerManager.clearTimer(roomId);
 
     const valid = applyAction(room, actor, action, Number(amount) || 0);
-    if (!valid) { socket.emit('actionError', { code: 'INVALID_ACTION' }); return; }
+    if (!valid) {
+      room._processing = false;
+      socket.emit('actionError', { code: 'INVALID_ACTION' });
+      return;
+    }
 
+    room._processing = false;
     const lastAction = { socketId: actor.socketId, action, amount: Number(amount) || 0 };
     processAfterAction(room, roomId, lastAction);
   });
 
-  // ── 延时申请 ──────────────────────────────────────────────
+  // ── 时间银行 ──────────────────────────────────────────────
   socket.on('extendTime', ({ roomId }) => {
     const room = roomManager.getRoom(roomId);
     if (!room) return;
     const player = room.players.find(p => p.socketId === socket.id);
     if (!player) return;
-    const result = timerManager.extendTimer(socket.id);
+    const result = timerManager.extendTimer(roomId);
     if (result.error) { socket.emit('timeBankError', { code: result.error }); return; }
     player.hasUsedTimeBank = true;
     io.to(roomId).emit('timerExtended', { socketId: socket.id });
@@ -90,7 +136,6 @@ module.exports = (io, socket) => {
     if (!room) { socket.emit('rebuyError', { code: 'ROOM_NOT_FOUND' }); return; }
     const player = room.players.find(p => p.socketId === socket.id);
     if (!player) { socket.emit('rebuyError', { code: 'PLAYER_NOT_FOUND' }); return; }
-    // 游戏中：只有弃牌后或筹码为0时可补码
     if (room.phase !== 'waiting' && !player.folded && player.chips > 0) {
       socket.emit('rebuyError', { code: 'CANNOT_REBUY_NOW' });
       return;
@@ -108,7 +153,6 @@ module.exports = (io, socket) => {
   // ── 结算阶段：准备/观战 ───────────────────────────────────
   socket.on('playerReadyStatus', ({ roomId, status }) => {
     const room = roomManager.getRoom(roomId);
-    console.log('[playerReadyStatus] roomId:', roomId, 'status:', status, 'phase:', room?.phase);
     if (!room || room.phase !== 'settlement') return;
     const player = room.players.find(p => p.socketId === socket.id);
     if (!player) return;
@@ -150,31 +194,48 @@ module.exports = (io, socket) => {
     });
   });
 
+  // ── 嘲讽 / 表情气泡 ──────────────────────────────────────────
+  socket.on('playerTaunt', ({ roomId, type, payload }) => {
+    const room = roomManager.getRoom(roomId);
+    if (!room) return;
+    const sender = room.players.find(p => p.socketId === socket.id);
+    if (!sender) return;
+    io.to(roomId).emit('playerTaunt', {
+      socketId: socket.id,
+      nickname: sender.nickname,
+      type,
+      payload,
+    });
+  });
+
   // ── 断线处理 ──────────────────────────────────────────────
   socket.on('disconnect', () => {
-    timerManager.clearTimer(socket.id);
     const room = roomManager.getRoomBySocket(socket.id);
     if (!room) return;
+
     const roomId = room.roomId;
     const player = room.players.find(p => p.socketId === socket.id);
     if (!player) return;
 
     player.disconnected = true;
 
-    // Delete room only when all players disconnected
+    // Only clear timer if it's NOT this player's turn.
+    // If it IS their turn, let the server-side timer continue → auto-fold when it fires.
+    const isTheirTurn = room.players[room.currentTurnIndex]?.socketId === socket.id;
+    if (!isTheirTurn) timerManager.clearTimer(roomId);
+
     if (room.players.every(p => p.disconnected)) {
       if (room._settlementTimeout) {
         clearTimeout(room._settlementTimeout);
         room._settlementTimeout = null;
       }
-      roomManager.rooms.delete(roomId);
+      // Don't delete room — keep for reconnect (persistence handles cleanup)
+      broadcastToEach(io, room, 'gameStateUpdate');
       return;
     }
 
     broadcastToEach(io, room, 'gameStateUpdate');
 
-    // If a player disconnects during settlement, treat them as spectating
-    // and check if remaining players are all ready to start
     if (room.phase === 'settlement') {
       if (player.readyStatus === 'pending') player.readyStatus = 'spectating';
       checkAllReadyAndStart(roomId);
@@ -185,7 +246,6 @@ module.exports = (io, socket) => {
   // 游戏流程核心逻辑
   // ─────────────────────────────────────────────────────────
 
-  // 玩家行动后的统一处理入口
   function processAfterAction(room, roomId, lastAction = null) {
     const extra = lastAction ? { lastAction } : {};
     if (!shouldAdvanceStreet(room)) {
@@ -201,14 +261,12 @@ module.exports = (io, socket) => {
       return;
     }
 
-    // 全员 all-in 或轮次结束：清除行动索引，广播当前状态，再进入下一街
     const canAct = active.filter(p => p.chips > 0);
     if (canAct.length === 0) room.currentTurnIndex = -1;
     broadcastToEach(io, room, 'gameStateUpdate', extra);
     advanceStreet(roomId);
   }
 
-  // 进入下一街（或摊牌）
   function advanceStreet(roomId) {
     const streetResult = roomManager.advanceToNextStreet(roomId);
     if (streetResult.error) return;
@@ -221,7 +279,6 @@ module.exports = (io, socket) => {
 
     broadcastToEach(io, updatedRoom, 'gameStateUpdate');
 
-    // 全员 all-in：自动连续翻出剩余公共牌
     const active = updatedRoom.players.filter(p => !p.folded);
     const canAct = active.filter(p => p.chips > 0);
     if (canAct.length === 0 && active.length > 1) {
@@ -231,7 +288,6 @@ module.exports = (io, socket) => {
     }
   }
 
-  // 全员 all-in：延迟1.5s翻下一张牌，直至showdown
   function autoRunBoard(roomId) {
     setTimeout(() => {
       const r = roomManager.getRoom(roomId);
@@ -241,16 +297,19 @@ module.exports = (io, socket) => {
   }
 
   function applyAction(room, actor, action, amount) {
+    if (!room.actionLog) room.actionLog = [];
     if (action === 'fold') {
       actor.folded = true;
       actor.hasActed = true;
       room.actedPlayerIds.add(actor.socketId);
+      room.actionLog.push({ phase: room.phase, nickname: actor.nickname, action: 'fold', amount: 0 });
       return true;
     }
     if (action === 'check') {
       if (room.betSize - actor.bet > 0) return false;
       actor.hasActed = true;
       room.actedPlayerIds.add(actor.socketId);
+      room.actionLog.push({ phase: room.phase, nickname: actor.nickname, action: 'check', amount: 0 });
       return true;
     }
     if (action === 'call') {
@@ -262,6 +321,7 @@ module.exports = (io, socket) => {
       actor.hasActed = true;
       room.actedPlayerIds.add(actor.socketId);
       if (actor.chips === 0) actor.status = 'allin';
+      room.actionLog.push({ phase: room.phase, nickname: actor.nickname, action: 'call', amount: toCall });
       return true;
     }
     if (action === 'raise') {
@@ -281,6 +341,7 @@ module.exports = (io, socket) => {
       room.players.forEach(p => { if (p.socketId !== actor.socketId && !p.folded) p.hasActed = false; });
       room.actedPlayerIds = new Set([actor.socketId]);
       actor.hasActed = true;
+      room.actionLog.push({ phase: room.phase, nickname: actor.nickname, action: 'raise', amount });
       return true;
     }
     if (action === 'allin') {
@@ -298,6 +359,7 @@ module.exports = (io, socket) => {
       }
       actor.hasActed = true;
       room.actedPlayerIds.add(actor.socketId);
+      room.actionLog.push({ phase: room.phase, nickname: actor.nickname, action: 'allin', amount: allInAmount });
       return true;
     }
     return false;
@@ -325,7 +387,6 @@ module.exports = (io, socket) => {
   function startNextPlayerTimer(room) {
     const actor = room.players[room.currentTurnIndex];
     if (!actor || actor.folded || actor.chips === 0) {
-      // Safety: if everyone is all-in and we're mid-game, trigger runout
       const active = room.players.filter(p => !p.folded);
       const canAct = active.filter(p => p.chips > 0);
       if (canAct.length === 0 && active.length > 1 && room.phase !== 'showdown' && room.phase !== 'waiting') {
@@ -334,15 +395,16 @@ module.exports = (io, socket) => {
       return;
     }
 
-    timerManager.startTimer(actor.socketId, room.roomId, room.settings.actionTime || 20, (socketId, roomId) => {
+    timerManager.startTimer(room.roomId, actor.nickname, room.settings.actionTime || 20, (actorNickname, roomId) => {
       const r = roomManager.getRoom(roomId);
       if (!r) return;
       const timedOutActor = r.players[r.currentTurnIndex];
-      if (!timedOutActor || timedOutActor.socketId !== socketId) return;
+      // Match by nickname to handle reconnects where socketId changed
+      if (!timedOutActor || timedOutActor.nickname !== actorNickname) return;
       const autoAction = timedOutActor.chips === 0 ? 'check' : 'fold';
       applyAction(r, timedOutActor, autoAction, 0);
-      io.to(roomId).emit('timedOut', { socketId, autoAction });
-      const lastAction = { socketId, action: autoAction, amount: 0 };
+      io.to(roomId).emit('timedOut', { socketId: timedOutActor.socketId, autoAction });
+      const lastAction = { socketId: timedOutActor.socketId, action: autoAction, amount: 0 };
       processAfterAction(r, roomId, lastAction);
     });
 
@@ -353,7 +415,7 @@ module.exports = (io, socket) => {
     });
   }
 
-  // 边池计算：按各玩家总投入分级，确保短码玩家只赢自己能匹配的部分
+  // 边池计算
   function calculateSidePots(players) {
     const entries = players
       .map(p => ({ player: p, amount: p.totalBet || 0, folded: p.folded }))
@@ -373,7 +435,7 @@ module.exports = (io, socket) => {
       if (eligible.length > 0) {
         pots.push({ amount: potAmount, eligible });
       } else {
-        carryover = potAmount; // 所有投入该级别的玩家都已弃牌，金额顺延
+        carryover = potAmount;
       }
       prevLevel = level;
       remaining = remaining.filter(e => e.amount > level);
@@ -382,24 +444,42 @@ module.exports = (io, socket) => {
     return pots;
   }
 
+  function recomputeSettlementResults(room, viewerSocketId) {
+    if (!room._settlementBaseResults) return [];
+    const wasMuckWin = room._settlementWasMuckWin;
+    return room._settlementBaseResults.map(r => {
+      const p = room.players.find(x => x.nickname === r.nickname);
+      const currentSocketId = p?.socketId ?? r.socketId;
+      const canSeeCards = !wasMuckWin || currentSocketId === viewerSocketId || p?.voluntaryReveal;
+      const holeCards = canSeeCards && p && !p.folded
+        ? p.holeCards
+        : p && p.folded ? [] : ['hidden', 'hidden'];
+      return { ...r, socketId: currentSocketId, holeCards };
+    });
+  }
+
   function resolveShowdown(room, io, roomId) {
     const active = room.players.filter(p => !p.folded);
-    const winnings = {}; // socketId -> total won
+    const winnings = {}; // nickname -> total won
+    const potBreakdown = []; // [{ amount, winners: [nickname], type: 'main'|'side' }]
 
     if (active.length === 1) {
-      winnings[active[0].socketId] = room.pot;
+      const w = active[0];
+      winnings[w.nickname] = room.pot;
+      potBreakdown.push({ amount: room.pot, winners: [w.nickname], type: 'main' });
     } else {
       try {
         const { Hand } = require('pokersolver');
         const community = room.communityCards.map(c => c.code);
         const sidePots = calculateSidePots(room.players);
 
-        for (const pot of sidePots) {
-          if (pot.eligible.length === 0) continue;
+        sidePots.forEach((pot, idx) => {
+          if (pot.eligible.length === 0) return;
           if (pot.eligible.length === 1) {
             const w = pot.eligible[0];
-            winnings[w.socketId] = (winnings[w.socketId] || 0) + pot.amount;
-            continue;
+            winnings[w.nickname] = (winnings[w.nickname] || 0) + pot.amount;
+            potBreakdown.push({ amount: pot.amount, winners: [w.nickname], type: idx === 0 ? 'main' : 'side' });
+            return;
           }
           const solved = pot.eligible.map(p => ({
             player: p,
@@ -409,26 +489,36 @@ module.exports = (io, socket) => {
           const potWinners = solved.filter(s => winningHands.includes(s.hand)).map(s => s.player);
           const share = Math.floor(pot.amount / potWinners.length);
           potWinners.forEach(w => {
-            winnings[w.socketId] = (winnings[w.socketId] || 0) + share;
+            winnings[w.nickname] = (winnings[w.nickname] || 0) + share;
           });
-        }
+          potBreakdown.push({
+            amount: pot.amount,
+            winners: potWinners.map(w => w.nickname),
+            type: idx === 0 ? 'main' : 'side',
+          });
+        });
       } catch (e) {
-        winnings[active[0].socketId] = room.pot;
+        const w = active[0];
+        winnings[w.nickname] = room.pot;
+        potBreakdown.push({ amount: room.pot, winners: [w.nickname], type: 'main' });
       }
     }
 
     room.players.forEach(p => {
-      p.won = winnings[p.socketId] || 0;
+      p.won = winnings[p.nickname] || 0;
       p.chips += p.won;
+      // Update win stats
+      if (p.won > 0) {
+        if (!p.stats) p.stats = { handsPlayed: 0, wins: 0 };
+        p.stats.wins += 1;
+      }
     });
     room.pot = 0;
     room.phase = 'settlement';
-    // Spectating and disconnected players are auto-spectated; active players must choose
     room.players.forEach(p => {
       p.readyStatus = (p.status === 'spectating' || p.disconnected) ? 'spectating' : 'pending';
     });
 
-    // Build per-hand results with hand names from pokersolver
     const { Hand } = require('pokersolver');
     const community = room.communityCards.map(c => c.code);
     const baseResults = room.players.map(p => {
@@ -447,39 +537,57 @@ module.exports = (io, socket) => {
     });
 
     const wasMuckWin = active.length === 1;
-    const settlementDeadline = Date.now() + 3000;
+    const settlementDeadline = Date.now() + 10000;
 
-    // Send each player their personalized result view
+    // Save hand to history
+    const handRecord = {
+      handNum: (room.handHistory?.length || 0) + 1,
+      communityCards: [...room.communityCards],
+      potBreakdown,
+      players: baseResults.map(r => ({ nickname: r.nickname, delta: r.delta, handName: r.handName })),
+      wasMuckWin,
+      timestamp: Date.now(),
+    };
+    if (!room.handHistory) room.handHistory = [];
+    room.handHistory.push(handRecord);
+    if (room.handHistory.length > 5) room.handHistory.shift();
+
+    room._settlementBaseResults = baseResults;
+    room._settlementWasMuckWin = wasMuckWin;
+    room._settlementDeadline = settlementDeadline;
+    room._actionLog = room.actionLog || [];
+    room._potBreakdown = potBreakdown;
+
     for (const player of room.players) {
-      const playerResults = baseResults.map(r => {
-        const p = room.players.find(x => x.socketId === r.socketId);
-        const canSeeCards = !wasMuckWin
-          || r.socketId === player.socketId
-          || (p && p.voluntaryReveal);
-        const holeCards = canSeeCards && p && !p.folded
-          ? p.holeCards
-          : p && p.folded ? [] : ['hidden', 'hidden'];
-        return { ...r, holeCards };
-      });
+      const playerResults = recomputeSettlementResults(room, player.socketId);
       io.to(player.socketId).emit('showdown', {
         room: sanitizeRoom(room, player.socketId),
         results: playerResults,
         wasMuckWin,
         settlementDeadline,
+        potBreakdown,
+        isReconnect: false,
+        actionLog: room._actionLog,
       });
     }
 
-    // 3-second auto-start: no manual ready needed
+    // Persist after each hand
+    roomManager.saveToDisk();
+
     room._settlementTimeout = setTimeout(() => {
       const r = roomManager.getRoom(roomId);
       if (!r || r.phase !== 'settlement') return;
-      startNextHand(roomId);
-    }, 3000);
+      let changed = false;
+      r.players.forEach(p => {
+        if (p.readyStatus === 'pending') { p.readyStatus = 'spectating'; changed = true; }
+      });
+      if (changed) broadcastToEach(io, r, 'gameStateUpdate');
+      checkAllReadyAndStart(roomId);
+    }, 10000);
   }
 
   // ── 工具函数 ──────────────────────────────────────────────
 
-  // 向所有玩家逐个发送（绕过 socket.io 房间），每人收到自己视角的房间状态
   function broadcastToEach(io, room, event, extra = {}) {
     for (const player of room.players) {
       io.to(player.socketId).emit(event, { room: sanitizeRoom(room, player.socketId), ...extra });
@@ -491,6 +599,12 @@ module.exports = (io, socket) => {
       ...room,
       _settlementTimeout: undefined,
       _startingNextHand: undefined,
+      _settlementBaseResults: undefined,
+      _settlementWasMuckWin: undefined,
+      _settlementDeadline: undefined,
+      _actionLog: undefined,
+      _potBreakdown: undefined,
+      _processing: undefined,
       actedPlayerIds: [...(room.actedPlayerIds || [])],
       players: room.players.map(p => ({
         ...p,
@@ -503,16 +617,12 @@ module.exports = (io, socket) => {
 
   function checkAllReadyAndStart(roomId) {
     const room = roomManager.getRoom(roomId);
-    if (!room || room.phase !== 'settlement') {
-      console.log('[checkAllReady] early exit: room missing or phase=', room?.phase);
-      return;
-    }
+    if (!room || room.phase !== 'settlement') return;
 
     const connected = room.players.filter(p => !p.disconnected);
     if (connected.length === 0) return;
 
     const allChosen = connected.every(p => p.readyStatus !== 'pending');
-    console.log('[checkAllReady] connected:', connected.map(p => `${p.nickname}=${p.readyStatus}`), 'allChosen:', allChosen);
     if (!allChosen) return;
 
     const readyCount = connected.filter(
@@ -520,42 +630,25 @@ module.exports = (io, socket) => {
     ).length;
 
     if (readyCount < 2) {
-      console.log('[checkAllReady] readyCount<2:', readyCount);
       broadcastToEach(io, room, 'gameStateUpdate');
       return;
     }
 
-    console.log('[checkAllReady] calling startNextHand');
     startNextHand(roomId);
   }
-
-  // ── 嘲讽 / 表情气泡 ──────────────────────────────────────────
-  socket.on('playerTaunt', ({ roomId, type, payload }) => {
-    const room = roomManager.getRoom(roomId);
-    if (!room) return;
-    const sender = room.players.find(p => p.socketId === socket.id);
-    if (!sender) return;
-    io.to(roomId).emit('playerTaunt', {
-      socketId: socket.id,
-      nickname: sender.nickname,
-      type,
-      payload,
-    });
-  });
 
   function startNextHand(roomId) {
     const room = roomManager.getRoom(roomId);
     if (!room) return;
-    // Guard against double-call
     if (room._startingNextHand) return;
     room._startingNextHand = true;
-    console.log('[startNextHand] called, phase:', room.phase);
 
     if (room._settlementTimeout) {
       clearTimeout(room._settlementTimeout);
       room._settlementTimeout = null;
     }
 
+    timerManager.clearTimer(roomId);
     roomManager.advanceDealer(roomId);
 
     room.players.forEach(p => {
@@ -588,17 +681,24 @@ module.exports = (io, socket) => {
     room.actedPlayerIds = new Set();
     room.currentTurnIndex = -1;
     room.phase = 'waiting';
+    room._settlementBaseResults = null;
+    room._settlementWasMuckWin = null;
+    room._settlementDeadline = null;
+    room.actionLog = [];
+    room._actionLog = null;
+    room._potBreakdown = null;
 
     const result = roomManager.startGame(roomId);
     room._startingNextHand = false;
-    console.log('[startNextHand] startGame result:', result, 'phase now:', room.phase);
     if (!result.error) {
       const next = roomManager.getRoom(roomId);
-      console.log('[startNextHand] broadcasting gameStarted to', next.players.length, 'players, phase:', next.phase);
       broadcastToEach(io, next, 'gameStarted');
       startNextPlayerTimer(next);
     } else {
       broadcastToEach(io, room, 'gameStateUpdate');
     }
+
+    // Persist chip counts after hand completes
+    roomManager.saveToDisk();
   }
 };

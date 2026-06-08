@@ -1,27 +1,28 @@
+// Timer keyed by roomId (not socketId) so reconnects don't break the turn clock
 class TimerManager {
   constructor() {
     this.timers = new Map();
   }
 
-  startTimer(socketId, roomId, duration, onTimeout) {
-    this.clearTimer(socketId);
+  startTimer(roomId, actorNickname, duration, onTimeout) {
+    this.clearTimer(roomId);
     const startTime = Date.now();
     const timeout = setTimeout(() => {
-      this.timers.delete(socketId);
-      onTimeout(socketId, roomId);
+      this.timers.delete(roomId);
+      onTimeout(actorNickname, roomId);
     }, duration * 1000);
-    this.timers.set(socketId, { timeout, startTime, duration, roomId, onTimeout, hasUsedTimeBank: false });
+    this.timers.set(roomId, { timeout, startTime, duration, roomId, actorNickname, onTimeout, hasUsedTimeBank: false });
   }
 
-  extendTimer(socketId) {
-    const entry = this.timers.get(socketId);
+  extendTimer(roomId) {
+    const entry = this.timers.get(roomId);
     if (!entry) return { error: 'TIMER_NOT_FOUND' };
     if (entry.hasUsedTimeBank) return { error: 'TIME_BANK_USED' };
     clearTimeout(entry.timeout);
-    const { roomId, onTimeout, duration } = entry;
+    const { roomId: rid, actorNickname, onTimeout, duration } = entry;
     const newTimeout = setTimeout(() => {
-      this.timers.delete(socketId);
-      onTimeout(socketId, roomId);
+      this.timers.delete(rid);
+      onTimeout(actorNickname, rid);
     }, duration * 1000);
     entry.timeout = newTimeout;
     entry.startTime = Date.now();
@@ -29,15 +30,23 @@ class TimerManager {
     return { success: true };
   }
 
-  clearTimer(socketId) {
-    const entry = this.timers.get(socketId);
-    if (entry) { clearTimeout(entry.timeout); this.timers.delete(socketId); }
+  clearTimer(roomId) {
+    const entry = this.timers.get(roomId);
+    if (entry) { clearTimeout(entry.timeout); this.timers.delete(roomId); }
   }
 
-  getRemaining(socketId) {
-    const entry = this.timers.get(socketId);
+  getRemaining(roomId) {
+    const entry = this.timers.get(roomId);
     if (!entry) return 0;
     return Math.max(0, entry.duration - (Date.now() - entry.startTime) / 1000);
+  }
+
+  getActorNickname(roomId) {
+    return this.timers.get(roomId)?.actorNickname ?? null;
+  }
+
+  hasUsedTimeBank(roomId) {
+    return this.timers.get(roomId)?.hasUsedTimeBank ?? false;
   }
 
   clearAll() {
