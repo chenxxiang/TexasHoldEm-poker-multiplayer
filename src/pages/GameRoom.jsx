@@ -154,6 +154,8 @@ export default function GameRoom() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [raiseAmount, setRaiseAmount] = useState(0);
+  const [raiseInputValue, setRaiseInputValue] = useState('');
+  const [raiseError, setRaiseError] = useState('');
   const [showRaise, setShowRaise] = useState(false);
   const [showScoreboard, setShowScoreboard] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -403,9 +405,31 @@ export default function GameRoom() {
   const halfPot = Math.floor(room.pot / 2);
 
   const sendAction = (action, amount = 0) => {
-    setError(''); setShowRaise(false);
+    setError(''); setShowRaise(false); setRaiseError('');
     playActionSound(action);
     socket.emit('playerAction', { roomId, action, amount });
+  };
+
+  const confirmRaise = () => {
+    const v = Number(raiseInputValue);
+    if (isNaN(v) || v < minRaise) {
+      setRaiseError(`加注金额不能低于最小加注 ${minRaise}`);
+      return;
+    }
+    if (v > maxRaise) {
+      setRaiseError(`超过最大筹码 ${maxRaise}，已改为全下`);
+      setRaiseAmount(maxRaise);
+      setRaiseInputValue(String(maxRaise));
+      return;
+    }
+    setRaiseError('');
+    sendAction('raise', v);
+  };
+
+  const setRaise = (v) => {
+    setRaiseAmount(v);
+    setRaiseInputValue(String(v));
+    setRaiseError('');
   };
 
   const sendTaunt = (type, payload) => {
@@ -566,49 +590,88 @@ export default function GameRoom() {
         {showRaise && showActionButtons && canRaise && (
           <div style={{
             position: 'absolute', bottom: 82, left: 0, right: 0, zIndex: 25,
-            background: 'rgba(6,10,22,0.95)', borderTop: '1px solid rgba(255,255,255,0.09)',
-            padding: '10px 14px 8px',
+            background: 'rgba(6,10,22,0.97)', borderTop: '1px solid rgba(255,255,255,0.09)',
+            padding: '10px 14px 12px',
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>加注至</span>
-              <span style={{ color: '#f0d060', fontWeight: 700, fontSize: 15 }}>
+              <span style={{ color: '#f0d060', fontWeight: 700, fontSize: 16 }}>
                 {actualRaise}
                 <span style={{ color: 'rgba(255,255,255,0.35)', fontWeight: 400, fontSize: 12 }}> (花费 {raiseCost})</span>
               </span>
-              <button
-                onClick={() => setShowRaise(false)}
-                style={{
-                  background: 'none', border: '1px solid rgba(255,255,255,0.2)',
-                  borderRadius: 8, color: 'rgba(255,255,255,0.55)', fontSize: 11,
-                  padding: '3px 10px', cursor: 'pointer',
-                }}
-              >取消</button>
+              <button onClick={() => { setShowRaise(false); setRaiseError(''); }} style={{
+                background: 'none', border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: 8, color: 'rgba(255,255,255,0.55)', fontSize: 11,
+                padding: '3px 10px', cursor: 'pointer',
+              }}>取消</button>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input
-                type="range" min={minRaise} max={maxRaise} value={actualRaise}
-                onChange={e => setRaiseAmount(Number(e.target.value))}
-                style={{ flex: 1, accentColor: '#eab308', height: 4 }}
-              />
-              <input
-                type="number"
-                min={minRaise} max={maxRaise}
-                value={actualRaise}
-                onChange={e => {
-                  const v = Number(e.target.value);
-                  if (!isNaN(v)) setRaiseAmount(v);
-                }}
-                style={{
-                  width: 64, background: 'rgba(255,255,255,0.08)',
-                  border: `1px solid ${(actualRaise < minRaise || actualRaise > maxRaise) ? '#ef4444' : 'rgba(255,255,255,0.2)'}`,
-                  borderRadius: 8, color: '#f0d060', fontWeight: 700,
-                  fontSize: 13, padding: '4px 6px', textAlign: 'center',
-                  outline: 'none',
-                }}
-              />
-              <button onClick={() => setRaiseAmount(Math.min(halfPot || minRaise, maxRaise))} style={presetBtn}>½POT</button>
-              <button onClick={() => setRaiseAmount(Math.min(room.pot || minRaise, maxRaise))} style={presetBtn}>POT</button>
-              <button onClick={() => setRaiseAmount(maxRaise)} style={{ ...presetBtn, borderColor: 'rgba(234,179,8,0.55)', color: '#eab308' }}>全下</button>
+
+            {/* Vertical slider + right controls */}
+            <div style={{ display: 'flex', gap: 14, alignItems: 'stretch' }}>
+              {/* Vertical slider column */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>{maxRaise}</span>
+                <input
+                  type="range"
+                  min={minRaise} max={maxRaise} value={actualRaise}
+                  onChange={e => setRaise(Number(e.target.value))}
+                  style={{
+                    writingMode: 'vertical-lr',
+                    direction: 'rtl',
+                    WebkitAppearance: 'slider-vertical',
+                    height: 110, width: 28,
+                    accentColor: '#eab308',
+                    cursor: 'pointer',
+                  }}
+                />
+                <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>{minRaise}</span>
+              </div>
+
+              {/* Right: presets + input + error */}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {/* Preset buttons */}
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => setRaise(Math.min(halfPot || minRaise, maxRaise))} style={presetBtn}>½POT</button>
+                  <button onClick={() => setRaise(Math.min(room.pot || minRaise, maxRaise))} style={presetBtn}>POT</button>
+                  <button onClick={() => setRaise(maxRaise)} style={{ ...presetBtn, borderColor: 'rgba(234,179,8,0.55)', color: '#eab308' }}>全下</button>
+                </div>
+
+                {/* Free-type number input */}
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input
+                    type="number"
+                    value={raiseInputValue}
+                    onChange={e => {
+                      const raw = e.target.value;
+                      setRaiseInputValue(raw);
+                      setRaiseError('');
+                      const v = Number(raw);
+                      if (!isNaN(v) && v >= minRaise && v <= maxRaise) setRaiseAmount(v);
+                    }}
+                    placeholder={`${minRaise} ~ ${maxRaise}`}
+                    style={{
+                      flex: 1, background: 'rgba(255,255,255,0.08)',
+                      border: `1px solid ${raiseError ? '#ef4444' : 'rgba(255,255,255,0.2)'}`,
+                      borderRadius: 8, color: '#f0d060', fontWeight: 700,
+                      fontSize: 14, padding: '6px 10px', textAlign: 'center',
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+
+                {/* Error message */}
+                {raiseError && (
+                  <div style={{ color: '#f87171', fontSize: 11, background: 'rgba(239,68,68,0.1)', borderRadius: 6, padding: '4px 8px' }}>
+                    ⚠ {raiseError}
+                  </div>
+                )}
+
+                {/* Min/max hint */}
+                <div style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10 }}>
+                  最小加注 {minRaise} · 全下 {maxRaise}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -643,7 +706,14 @@ export default function GameRoom() {
               </button>
 
               <button className="action-btn"
-                onClick={() => showRaise ? sendAction('raise', actualRaise) : setShowRaise(true)}
+                onClick={() => {
+                  if (showRaise) {
+                    confirmRaise();
+                  } else {
+                    setRaise(actualRaise);
+                    setShowRaise(true);
+                  }
+                }}
                 disabled={!canRaise || (me?.chips ?? 0) <= toCall}
                 style={{
                   ...actionBtn,
