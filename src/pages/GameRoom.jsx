@@ -533,6 +533,7 @@ export default function GameRoom() {
 
   const themeConfig = THEMES[room?.settings?.theme] || THEMES.macau;
   const tx = (key, def) => themeConfig.text[key] ?? def;
+  const isXianfeng = themeConfig.id === 'xianfeng';
   const phaseLabelMap = {
     waiting: tx('waitingPhase', '等待中'),
     preflop: tx('preflopPhase', '翻牌前'),
@@ -781,42 +782,56 @@ export default function GameRoom() {
         }}>
           {showActionButtons ? (
             <>
-              <button className="action-btn" onClick={() => sendAction('fold')} style={{
-                ...actionBtn,
-                background: 'linear-gradient(135deg,#7f1d1d,#991b1b)',
-                boxShadow: showRaise ? '0 4px 14px rgba(127,29,29,0.3)' : '0 6px 0 #5a0f0f, 0 8px 16px rgba(127,29,29,0.5)',
-                opacity: showRaise ? 0.35 : 1,
-                pointerEvents: showRaise ? 'none' : 'auto',
-              }}>{tx('fold', '弃牌')}</button>
+              <button
+                className={`action-btn${isXianfeng ? ' xf-fold' : ''}`}
+                onClick={() => sendAction('fold')}
+                style={{
+                  ...actionBtn,
+                  background: isXianfeng
+                    ? 'linear-gradient(135deg,#4a0814,#7a1532)'
+                    : 'linear-gradient(135deg,#7f1d1d,#991b1b)',
+                  boxShadow: isXianfeng ? undefined : (showRaise ? '0 4px 14px rgba(127,29,29,0.3)' : '0 6px 0 #5a0f0f, 0 8px 16px rgba(127,29,29,0.5)'),
+                  border: isXianfeng ? '1px solid rgba(220,60,90,0.35)' : 'none',
+                  textShadow: isXianfeng ? '0 0 8px rgba(255,100,130,0.75), 0 1px 3px rgba(0,0,0,0.9)' : 'none',
+                  opacity: showRaise ? 0.35 : 1,
+                  pointerEvents: showRaise ? 'none' : 'auto',
+                }}
+              >{tx('fold', '弃牌')}</button>
 
-              <button className="action-btn" onClick={() => canCheck ? sendAction('check') : sendAction('call')} style={{
-                ...actionBtn, flex: 1.3,
-                background: 'linear-gradient(135deg,#14532d,#166534)',
-                boxShadow: showRaise ? '0 4px 14px rgba(20,83,45,0.3)' : '0 6px 0 #0a3018, 0 8px 16px rgba(20,83,45,0.5)',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
-                opacity: showRaise ? 0.35 : 1,
-                pointerEvents: showRaise ? 'none' : 'auto',
-              }}>
+              <button
+                className={`action-btn${isXianfeng ? ' xf-call' : ''}`}
+                onClick={() => canCheck ? sendAction('check') : sendAction('call')}
+                style={{
+                  ...actionBtn, flex: 1.3,
+                  background: isXianfeng
+                    ? 'linear-gradient(135deg,#003028,#005248)'
+                    : 'linear-gradient(135deg,#14532d,#166534)',
+                  boxShadow: isXianfeng ? undefined : (showRaise ? '0 4px 14px rgba(20,83,45,0.3)' : '0 6px 0 #0a3018, 0 8px 16px rgba(20,83,45,0.5)'),
+                  border: isXianfeng ? '1px solid rgba(0,210,165,0.3)' : 'none',
+                  textShadow: isXianfeng ? '0 0 8px rgba(0,230,180,0.75), 0 1px 3px rgba(0,0,0,0.9)' : 'none',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
+                  opacity: showRaise ? 0.35 : 1,
+                  pointerEvents: showRaise ? 'none' : 'auto',
+                }}
+              >
                 <span>{canCheck ? tx('check', '过牌') : (me && me.chips < toCall ? tx('allinBtn', 'ALL-IN') : tx('call', '跟注'))}</span>
                 {!canCheck && <span style={{ fontSize: 12, opacity: 0.7 }}>{me && me.chips < toCall ? me.chips : toCall}</span>}
               </button>
 
-              <button className="action-btn"
+              <button
+                className={`action-btn${isXianfeng ? (showRaise ? ' xf-raise-confirm' : ' xf-raise') : ''}`}
                 onClick={() => {
-                  if (showRaise) {
-                    confirmRaise();
-                  } else {
-                    setRaise(actualRaise);
-                    setShowRaise(true);
-                  }
+                  if (showRaise) { confirmRaise(); } else { setRaise(actualRaise); setShowRaise(true); }
                 }}
                 disabled={!canRaise || (me?.chips ?? 0) <= toCall}
                 style={{
                   ...actionBtn,
-                  background: showRaise
-                    ? 'linear-gradient(135deg,#1e40af,#2563eb)'
-                    : 'linear-gradient(135deg,#1e3a8a,#1e40af)',
-                  boxShadow: showRaise ? '0 6px 0 #0f1e50, 0 8px 16px rgba(37,99,235,0.7)' : '0 6px 0 #0a1a5e, 0 8px 16px rgba(30,58,138,0.45)',
+                  background: isXianfeng
+                    ? (showRaise ? 'linear-gradient(135deg,#3500a0,#6000d0)' : 'linear-gradient(135deg,#1e0052,#3a0098)')
+                    : (showRaise ? 'linear-gradient(135deg,#1e40af,#2563eb)' : 'linear-gradient(135deg,#1e3a8a,#1e40af)'),
+                  boxShadow: isXianfeng ? undefined : (showRaise ? '0 6px 0 #0f1e50, 0 8px 16px rgba(37,99,235,0.7)' : '0 6px 0 #0a1a5e, 0 8px 16px rgba(30,58,138,0.45)'),
+                  border: isXianfeng ? `1px solid rgba(${showRaise ? '200,130,255,0.5' : '160,80,255,0.3'})` : 'none',
+                  textShadow: isXianfeng ? '0 0 8px rgba(190,120,255,0.8), 0 1px 3px rgba(0,0,0,0.9)' : 'none',
                   opacity: (!canRaise || (me?.chips ?? 0) <= toCall) ? 0.38 : 1,
                 }}
               >
@@ -947,6 +962,26 @@ export default function GameRoom() {
             from { opacity:1; }
             to   { opacity:0.4; }
           }
+          @keyframes xf-glow-fold {
+            0%,100% { box-shadow: 0 6px 0 #280008, 0 0 10px rgba(180,10,40,0.55), inset 0 1px 0 rgba(255,80,100,0.12); }
+            50%     { box-shadow: 0 6px 0 #280008, 0 0 24px rgba(230,20,60,1),    inset 0 1px 0 rgba(255,80,100,0.28); }
+          }
+          @keyframes xf-glow-call {
+            0%,100% { box-shadow: 0 6px 0 #001a14, 0 0 10px rgba(0,160,120,0.55), inset 0 1px 0 rgba(60,255,210,0.1); }
+            50%     { box-shadow: 0 6px 0 #001a14, 0 0 24px rgba(0,220,170,1),    inset 0 1px 0 rgba(60,255,210,0.22); }
+          }
+          @keyframes xf-glow-raise {
+            0%,100% { box-shadow: 0 6px 0 #0c0028, 0 0 10px rgba(110,30,210,0.55), inset 0 1px 0 rgba(180,100,255,0.12); }
+            50%     { box-shadow: 0 6px 0 #0c0028, 0 0 24px rgba(150,60,255,1),    inset 0 1px 0 rgba(180,100,255,0.28); }
+          }
+          @keyframes xf-glow-raise-confirm {
+            0%,100% { box-shadow: 0 6px 0 #1a0050, 0 0 14px rgba(130,50,255,0.7), inset 0 1px 0 rgba(200,140,255,0.18); }
+            50%     { box-shadow: 0 6px 0 #1a0050, 0 0 32px rgba(170,80,255,1),   inset 0 1px 0 rgba(200,140,255,0.38); }
+          }
+          .xf-fold  { animation: xf-glow-fold  2s   ease-in-out infinite; }
+          .xf-call  { animation: xf-glow-call  2s   ease-in-out infinite; }
+          .xf-raise { animation: xf-glow-raise 2.2s ease-in-out infinite; }
+          .xf-raise-confirm { animation: xf-glow-raise-confirm 1s ease-in-out infinite; }
         `}</style>
 
         {showTauntPicker && (
