@@ -23,6 +23,11 @@ module.exports = (io, socket) => {
 
     if (result.reconnected) {
       const room = result.room;
+      // Cancel pending room cleanup if someone reconnects
+      if (room._cleanupTimeout) {
+        clearTimeout(room._cleanupTimeout);
+        room._cleanupTimeout = null;
+      }
       socket.emit('joinedRoom', { room: sanitizeRoom(room, socket.id) });
       io.to(roomId).emit('playerReconnected', { nickname, socketId: socket.id });
       if (room.phase === 'settlement' && room._settlementBaseResults) {
@@ -229,8 +234,13 @@ module.exports = (io, socket) => {
         clearTimeout(room._settlementTimeout);
         room._settlementTimeout = null;
       }
-      // Don't delete room — keep for reconnect (persistence handles cleanup)
-      broadcastToEach(io, room, 'gameStateUpdate');
+      timerManager.clearTimer(roomId);
+      // All gone: start 30-min cleanup window so players can reconnect
+      room._cleanupTimeout = setTimeout(() => {
+        roomManager.rooms.delete(roomId);
+        roomManager.saveToDisk();
+        console.log(`[cleanup] room ${roomId} expired after all players disconnected`);
+      }, 30 * 60 * 1000);
       return;
     }
 
@@ -598,6 +608,7 @@ module.exports = (io, socket) => {
     return {
       ...room,
       _settlementTimeout: undefined,
+      _cleanupTimeout: undefined,
       _startingNextHand: undefined,
       _settlementBaseResults: undefined,
       _settlementWasMuckWin: undefined,
