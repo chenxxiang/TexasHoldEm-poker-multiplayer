@@ -32,6 +32,7 @@ class RoomManager {
       disconnected: true,
       readyStatus: 'pending',
       voluntaryReveal: false,
+      heroId: null,
     };
   }
 
@@ -50,6 +51,7 @@ class RoomManager {
           seatIndex: p.seatIndex,
           rebuyCount: p.rebuyCount || 0,
           stats: p.stats || { handsPlayed: 0, wins: 0 },
+          heroId: p.heroId || null,
         })),
       };
     }
@@ -77,6 +79,7 @@ class RoomManager {
             seatIndex: p.seatIndex,
             rebuyCount: p.rebuyCount || 0,
             stats: p.stats || { handsPlayed: 0, wins: 0 },
+            heroId: p.heroId || null,
           })),
           phase: 'waiting',
           communityCards: [],
@@ -129,6 +132,7 @@ class RoomManager {
         voluntaryReveal: false,
         rebuyCount: 0,
         stats: { handsPlayed: 0, wins: 0 },
+        heroId: null,
       }],
       phase: 'waiting',
       communityCards: [],
@@ -183,6 +187,7 @@ class RoomManager {
       voluntaryReveal: false,
       rebuyCount: 0,
       stats: { handsPlayed: 0, wins: 0 },
+      heroId: null,
     });
     return { success: true, room };
   }

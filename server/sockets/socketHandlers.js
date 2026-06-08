@@ -186,6 +186,19 @@ module.exports = (io, socket) => {
     broadcastToEach(io, room, 'gameStateUpdate');
   });
 
+  socket.on('selectHero', ({ roomId, heroId }) => {
+    const room = roomManager.getRoom(roomId);
+    if (!room) return;
+    const player = room.players.find(p => p.socketId === socket.id);
+    if (!player) return;
+    if (heroId && room.players.some(p => p.heroId === heroId && p.socketId !== socket.id)) {
+      socket.emit('heroError', { code: 'HERO_TAKEN' });
+      return;
+    }
+    player.heroId = heroId || null;
+    broadcastToEach(io, room, 'gameStateUpdate');
+  });
+
   // ── 结算阶段：自主揭示手牌 ───────────────────────────────────
   socket.on('revealCards', ({ roomId }) => {
     const room = roomManager.getRoom(roomId);

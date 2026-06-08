@@ -72,6 +72,24 @@ const PHASE_LABELS = {
 };
 const AVATARS = ['🐯','🦁','🐻','🐼','🐨','🦊','🐺','🐸','🐮','🐷'];
 
+const HEROES = [
+  { id: '保龙大帝', name: '保龙大帝', img: '/heroes/保龙大帝.png' },
+  { id: '大胖',    name: '大胖',    img: '/heroes/大胖.png' },
+  { id: '撸哥',    name: '撸哥',    img: '/heroes/撸哥.png' },
+  { id: '标桑',    name: '标桑',    img: '/heroes/标桑.png' },
+  { id: '翔总',    name: '翔总',    img: '/heroes/翔总.png' },
+  { id: '陈少钧',  name: '陈少钧',  img: '/heroes/陈少钧.png' },
+  { id: '韬少',    name: '韬少',    img: '/heroes/韬少.png' },
+];
+
+function getPlayerHero(player) {
+  if (player.heroId) {
+    const found = HEROES.find(h => h.id === player.heroId);
+    if (found) return found;
+  }
+  return HEROES[player.seatIndex % HEROES.length];
+}
+
 // Dynamic seat positions based on player count (i=0 = me at bottom center, others clockwise)
 function getSeatPositions(n) {
   const cx = 50, cy = 42, rx = 42, ry = 24;
@@ -168,6 +186,7 @@ export default function GameRoom() {
   const [cardReveals, setCardReveals] = useState({});
   const [tauntBubbles, setTauntBubbles] = useState({});
   const [actionBadges, setActionBadges] = useState({});
+  const [raisePopups, setRaisePopups] = useState({});
   const [showTauntPicker, setShowTauntPicker] = useState(false);
   const [tauntTab, setTauntTab] = useState('emoji');
 
@@ -267,6 +286,16 @@ export default function GameRoom() {
             return next;
           });
         }, 1500);
+        if (action === 'raise' || action === 'allin') {
+          setRaisePopups(prev => ({ ...prev, [socketId]: { amount, action, key } }));
+          setTimeout(() => {
+            setRaisePopups(prev => {
+              const next = { ...prev };
+              if (next[socketId]?.key === key) delete next[socketId];
+              return next;
+            });
+          }, 1300);
+        }
       }
     };
     const onStarted = (payload) => {
@@ -277,6 +306,7 @@ export default function GameRoom() {
       setSettlementData(null);
       setSettlementDeadline(null);
       setCardReveals({});
+      setRaisePopups({});
     };
     const onPlayerJoined = ({ room: r }) => setRoom(r);
     const onHandHistory = ({ history }) => setHandHistory(history || []);
@@ -405,6 +435,7 @@ export default function GameRoom() {
   const halfPot = Math.floor(room.pot / 2);
 
   const sendAction = (action, amount = 0) => {
+    if (navigator.vibrate) navigator.vibrate(15);
     setError(''); setShowRaise(false); setRaiseError('');
     playActionSound(action);
     socket.emit('playerAction', { roomId, action, amount });
@@ -549,6 +580,7 @@ export default function GameRoom() {
               tauntBubbles={tauntBubbles}
               onMyAvatarClick={() => setShowTauntPicker(true)}
               actionBadges={actionBadges}
+              raisePopups={raisePopups}
             />
 
             {/* My hole cards */}
@@ -820,9 +852,13 @@ export default function GameRoom() {
             70%  { opacity:1; }
             100% { opacity:0; }
           }
+          .action-btn {
+            transition: transform 0.08s ease, box-shadow 0.08s ease, filter 0.1s ease !important;
+          }
           .action-btn:active {
-            transform: translateY(3px) !important;
-            filter: brightness(0.88) !important;
+            transform: translateY(5px) scale(0.94) !important;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.5) !important;
+            filter: brightness(0.70) saturate(1.3) !important;
           }
           @keyframes win-fade-in {
             from { opacity:0; transform:scale(0.85); }
@@ -831,6 +867,21 @@ export default function GameRoom() {
           @keyframes crown-bounce {
             from { transform:translateY(0) scale(1); }
             to   { transform:translateY(-10px) scale(1.12); }
+          }
+          @keyframes raise-float-up {
+            0%   { opacity:0; transform:translateX(-50%) translateY(4px) scale(0.5); }
+            18%  { opacity:1; transform:translateX(-50%) translateY(-12px) scale(1.25); }
+            55%  { opacity:1; transform:translateX(-50%) translateY(-28px) scale(1.05); }
+            100% { opacity:0; transform:translateX(-50%) translateY(-52px) scale(0.85); }
+          }
+          @keyframes allin-wobble {
+            0%   { transform:translateX(calc(-50% - 4px)) rotate(-5deg) scale(1); }
+            50%  { transform:translateX(calc(-50% + 4px)) rotate(5deg) scale(1.06); }
+            100% { transform:translateX(calc(-50% - 4px)) rotate(-5deg) scale(1); }
+          }
+          @keyframes pulse {
+            from { opacity:1; }
+            to   { opacity:0.4; }
           }
         `}</style>
 
@@ -892,7 +943,7 @@ const presetBtn = {
 };
 
 // ── Poker table: only player avatars, no CSS oval ──────────────
-function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtendTime, tauntBubbles, onMyAvatarClick, actionBadges }) {
+function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtendTime, tauntBubbles, onMyAvatarClick, actionBadges, raisePopups }) {
   const n = room.players.length;
   const myIdx = room.players.findIndex(p => p.socketId === mySocketId);
   const orderedPlayers = myIdx >= 0
@@ -927,6 +978,7 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
             bubble={tauntBubbles?.[player.socketId]}
             onAvatarClick={isMe ? onMyAvatarClick : null}
             actionBadge={actionBadges?.[player.socketId]}
+            raisePopup={raisePopups?.[player.socketId]}
           />
         );
       })}
@@ -935,7 +987,7 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
 }
 
 // ── Avatar with timer ring ─────────────────────────────────────
-function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime, bubble, onAvatarClick, actionBadge }) {
+function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime, bubble, onAvatarClick, actionBadge, raisePopup }) {
   const CIRCUMFERENCE = 2 * Math.PI * 20;
   const duration = timerInfo?.duration || 20;
   const dashOffset = CIRCUMFERENCE * (1 - (isCurrentTurn && countdown > 0 ? countdown / duration : 0));
@@ -943,7 +995,22 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
   const isLowTime = isCurrentTurn && countdown > 0 && countdown <= duration * 0.25;
   const isGrayed = player.disconnected || player.status === 'spectating';
   const isFolded = player.folded && player.status !== 'spectating';
-  const sz = isMe ? 46 : 40;
+  const isAllin = player.status === 'allin' && !isFolded;
+  const sz = isMe ? 52 : 46;
+  const hero = getPlayerHero(player);
+
+  const [avatarScale, setAvatarScale] = useState(1);
+  const prevRaiseKeyRef = useRef(null);
+  useEffect(() => {
+    if (!raisePopup || raisePopup.key === prevRaiseKeyRef.current) return;
+    prevRaiseKeyRef.current = raisePopup.key;
+    setAvatarScale(1.55);
+    setTimeout(() => setAvatarScale(1.25), 180);
+    setTimeout(() => setAvatarScale(1), 520);
+  }, [raisePopup]);
+
+  const baseScale = isCurrentTurn ? 1.18 : 1;
+  const effectiveScale = avatarScale > 1 ? avatarScale : baseScale;
 
   return (
     <div style={posStyle}>
@@ -954,25 +1021,32 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
       }}>
         {/* Avatar + ring */}
         <div style={{ position: 'relative', width: sz, height: sz }}>
-          {/* Speech bubble anchored to avatar circle */}
+          {/* Floating popups above avatar */}
           {bubble && <SpeechBubble type={bubble.type} payload={bubble.payload} key={bubble.key} />}
-          {actionBadge && !bubble && <ActionBadge badge={actionBadge} />}
+          {raisePopup && <RaisePopup popup={raisePopup} key={raisePopup.key} />}
+          {!bubble && !raisePopup && actionBadge && <ActionBadge badge={actionBadge} />}
+          {isAllin && !actionBadge && !bubble && !raisePopup && <AllInBadge />}
+
           <div
             onClick={onAvatarClick}
             style={{
-              width: sz, height: sz, borderRadius: '50%',
+              width: sz, height: sz, borderRadius: '50%', overflow: 'hidden',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: isMe ? 22 : 18,
               background: isMe ? '#1e3a6e' : '#252525',
-              border: `2px solid ${isCurrentTurn ? '#f0d060' : isMe ? '#3b82f6' : 'rgba(255,255,255,0.18)'}`,
-              transform: isCurrentTurn ? 'scale(1.18)' : 'scale(1)',
-              transition: 'transform 0.2s ease',
+              border: `2.5px solid ${isCurrentTurn ? '#f0d060' : isMe ? '#3b82f6' : 'rgba(255,255,255,0.22)'}`,
+              transform: `scale(${effectiveScale})`,
+              transition: avatarScale > 1 ? 'transform 0.16s cubic-bezier(0.34,1.56,0.64,1)' : 'transform 0.2s ease',
               opacity: isFolded ? 0.38 : 1,
               cursor: onAvatarClick ? 'pointer' : 'default',
               boxShadow: onAvatarClick ? '0 0 0 2px rgba(240,208,96,0.35)' : 'none',
             }}
           >
-            {AVATARS[avatarIdx]}
+            <img
+              src={hero.img}
+              alt={hero.name}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', userSelect: 'none', pointerEvents: 'none' }}
+            />
           </div>
 
           {isCurrentTurn && timerInfo && countdown > 0 && (
@@ -1005,7 +1079,7 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
         </div>
 
         {/* Name / chip info */}
-        <div style={{ textAlign: 'center', maxWidth: isMe ? 80 : 68 }}>
+        <div style={{ textAlign: 'center', maxWidth: isMe ? 84 : 72 }}>
           <div style={{
             fontSize: isMe ? 11 : 10, fontWeight: 600,
             color: isFolded ? 'rgba(255,255,255,0.28)' : '#fff',
@@ -1018,7 +1092,6 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
           {player.bet > 0 && (
             <div style={{ fontSize: 9, color: '#fde68a', textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}>注:{player.bet}</div>
           )}
-          {player.status === 'allin' && !isFolded && <div style={{ fontSize: 9, color: '#fbbf24', fontWeight: 700 }}>ALL-IN</div>}
           {isFolded && <div style={{ fontSize: 9, color: '#f87171' }}>弃牌</div>}
           {player.status === 'spectating' && <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.38)' }}>👁</div>}
           {player.disconnected && player.status !== 'spectating' && <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.38)' }}>断线</div>}
@@ -1060,6 +1133,57 @@ function ActionBadge({ badge }) {
   );
 }
 
+function RaisePopup({ popup }) {
+  const isAllin = popup.action === 'allin';
+  return (
+    <div style={{
+      position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%',
+      zIndex: 57, pointerEvents: 'none',
+      animation: 'raise-float-up 1.3s ease forwards',
+    }}>
+      <div style={{
+        color: isAllin ? '#ffd700' : '#4ade80',
+        fontWeight: 900,
+        fontSize: isAllin ? 20 : 28,
+        textShadow: isAllin
+          ? '0 0 18px rgba(255,215,0,0.9), 0 0 6px rgba(255,100,0,0.7), 0 2px 4px rgba(0,0,0,1)'
+          : '0 0 18px rgba(74,222,128,0.9), 0 2px 4px rgba(0,0,0,1)',
+        whiteSpace: 'nowrap',
+        letterSpacing: isAllin ? 2 : 0,
+        transform: 'translateX(-50%)',
+        display: 'block',
+      }}>
+        {isAllin ? '💥 ALL-IN!' : `+${popup.amount}`}
+      </div>
+    </div>
+  );
+}
+
+function AllInBadge() {
+  return (
+    <div style={{
+      position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%',
+      zIndex: 56, pointerEvents: 'none',
+    }}>
+      <div style={{
+        fontSize: 11, fontWeight: 900,
+        color: '#fff',
+        background: 'linear-gradient(90deg, #ff4444 0%, #ff9900 33%, #ff44ff 66%, #ff4444 100%)',
+        backgroundSize: '200% 100%',
+        padding: '2px 7px',
+        borderRadius: 6,
+        border: '1px solid rgba(255,255,255,0.4)',
+        boxShadow: '0 0 8px rgba(255,100,0,0.6)',
+        whiteSpace: 'nowrap',
+        letterSpacing: 1,
+        transform: 'translateX(-50%)',
+        display: 'block',
+        animation: 'allin-wobble 0.65s ease-in-out infinite',
+      }}>✦ ALL-IN ✦</div>
+    </div>
+  );
+}
+
 // ── Scoreboard overlay ─────────────────────────────────────────
 function Scoreboard({ room, mySocketId, onClose }) {
   const sorted = [...room.players].sort((a, b) => b.chips - a.chips);
@@ -1089,7 +1213,7 @@ function Scoreboard({ room, mySocketId, onClose }) {
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                   <span style={{ fontWeight: 700, color: rank === 0 ? '#f0d060' : 'rgba(255,255,255,0.35)', fontSize: 14, flexShrink: 0 }}>#{rank + 1}</span>
-                  <span style={{ fontSize: 16, flexShrink: 0 }}>{AVATARS[p.seatIndex % AVATARS.length]}</span>
+                  <img src={getPlayerHero(p).img} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nickname}</div>
                     {p.stats?.handsPlayed > 0 && (
@@ -1189,9 +1313,10 @@ function SettlementScreen({
               }}>
                 {/* Row 1: avatar, name, delta, readyStatus */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 19, flexShrink: 0 }}>
-                    {isWinner ? '👑' : AVATARS[(player?.seatIndex || 0) % AVATARS.length]}
-                  </span>
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                    <img src={(player ? getPlayerHero(player) : HEROES[0]).img} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }} />
+                    {isWinner && <span style={{ position: 'absolute', top: -8, left: '50%', transform: 'translateX(-50%)', fontSize: 14 }}>👑</span>}
+                  </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {r.nickname}{r.socketId === mySocketId ? ' (我)' : ''}
@@ -1356,35 +1481,69 @@ function SettlementScreen({
 
 // ── Waiting room overlay ───────────────────────────────────────
 function WaitingRoom({ room, isHost, mySocketId, roomId }) {
+  const [showHeroPicker, setShowHeroPicker] = useState(false);
+  const me = room.players.find(p => p.socketId === mySocketId);
+  const myHero = me?.heroId ? HEROES.find(h => h.id === me.heroId) : null;
+
   return (
     <div style={{
       position: 'absolute', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.92)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }}>
       <div style={{ background: '#1a2f4a', borderRadius: 22, padding: 24, border: '1px solid rgba(255,255,255,0.12)', width: '100%', maxWidth: 360 }}>
-        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+        <div style={{ textAlign: 'center', marginBottom: 16 }}>
           <p style={{ color: 'rgba(240,208,96,0.5)', fontSize: 13, margin: '0 0 6px' }}>分享房间号给朋友</p>
           <p style={{ color: '#f0d060', fontSize: 40, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '0.2em', margin: 0 }}>{room.roomId}</p>
         </div>
 
+        {/* Hero selection button */}
+        <button
+          onClick={() => setShowHeroPicker(true)}
+          style={{
+            width: '100%', padding: '10px 0', borderRadius: 12, cursor: 'pointer',
+            background: myHero ? 'rgba(240,208,96,0.15)' : 'rgba(59,130,246,0.18)',
+            border: `1.5px solid ${myHero ? 'rgba(240,208,96,0.5)' : 'rgba(59,130,246,0.45)'}`,
+            color: myHero ? '#f0d060' : '#93c5fd',
+            fontWeight: 700, fontSize: 14, marginBottom: 14,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          }}
+        >
+          {myHero ? (
+            <>
+              <img src={myHero.img} style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' }} alt="" />
+              {myHero.name} · 更换英雄
+            </>
+          ) : '🦸 选择你的英雄'}
+        </button>
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
-          {room.players.map(p => (
-            <div key={p.socketId} style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              background: 'rgba(255,255,255,0.04)', borderRadius: 14, padding: '10px 14px',
-              border: '1px solid rgba(255,255,255,0.06)',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 20 }}>{AVATARS[p.seatIndex % AVATARS.length]}</span>
-                <span style={{ fontSize: 14 }}>{p.nickname}</span>
-                {p.socketId === mySocketId && <span style={{ color: '#f0d060', fontSize: 11 }}>(我)</span>}
+          {room.players.map(p => {
+            const hero = getPlayerHero(p);
+            return (
+              <div key={p.socketId} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                background: 'rgba(255,255,255,0.04)', borderRadius: 14, padding: '10px 14px',
+                border: '1px solid rgba(255,255,255,0.06)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <img src={hero.img} alt={hero.name} style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: 14 }}>
+                      {p.nickname}
+                      {p.socketId === mySocketId && <span style={{ color: '#f0d060', fontSize: 11 }}> (我)</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: p.heroId ? '#f0d060' : 'rgba(255,255,255,0.28)' }}>
+                      {hero.name}{!p.heroId && ' (随机)'}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ color: 'rgba(240,208,96,0.55)', fontSize: 12 }}>{p.chips}</span>
+                  {p.socketId === room.hostSocketId && <span style={{ fontSize: 11, color: '#f0d060', background: 'rgba(240,208,96,0.14)', padding: '2px 8px', borderRadius: 8 }}>房主</span>}
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ color: 'rgba(240,208,96,0.55)', fontSize: 12 }}>{p.chips}</span>
-                {p.socketId === room.hostSocketId && <span style={{ fontSize: 11, color: '#f0d060', background: 'rgba(240,208,96,0.14)', padding: '2px 8px', borderRadius: 8 }}>房主</span>}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div style={{
@@ -1418,6 +1577,91 @@ function WaitingRoom({ room, isHost, mySocketId, roomId }) {
             等待房主开始游戏...
           </div>
         )}
+      </div>
+
+      {showHeroPicker && (
+        <HeroPicker
+          players={room.players}
+          mySocketId={mySocketId}
+          myHeroId={me?.heroId}
+          onSelect={(heroId) => {
+            socket.emit('selectHero', { roomId, heroId });
+            setShowHeroPicker(false);
+          }}
+          onClose={() => setShowHeroPicker(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── 英雄选择器 ────────────────────────────────────────────────
+function HeroPicker({ players, mySocketId, myHeroId, onSelect, onClose }) {
+  const claimedByOthers = new Set(
+    players.filter(p => p.heroId && p.socketId !== mySocketId).map(p => p.heroId)
+  );
+  return (
+    <div style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.9)' }} onClick={onClose}>
+      <div style={{
+        position: 'absolute', top: '50%', left: '50%',
+        transform: 'translate(-50%,-50%)',
+        background: '#1a2f4a', borderRadius: 22, padding: 20,
+        border: '1px solid rgba(240,208,96,0.28)', width: '90%', maxWidth: 340,
+        maxHeight: '82vh', overflowY: 'auto',
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <h3 style={{ color: '#f0d060', fontWeight: 700, fontSize: 18, margin: 0 }}>🦸 选择你的英雄</h3>
+          <button onClick={onClose} style={{ color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+          {HEROES.map(hero => {
+            const isTaken = claimedByOthers.has(hero.id);
+            const isSelected = hero.id === myHeroId;
+            return (
+              <button
+                key={hero.id}
+                onClick={() => !isTaken && onSelect(hero.id)}
+                disabled={isTaken}
+                style={{
+                  background: isSelected ? 'rgba(240,208,96,0.22)' : 'rgba(255,255,255,0.06)',
+                  border: `2px solid ${isSelected ? '#f0d060' : isTaken ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.15)'}`,
+                  borderRadius: 14, padding: '10px 4px',
+                  cursor: isTaken ? 'not-allowed' : 'pointer',
+                  opacity: isTaken ? 0.32 : 1,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                }}
+              >
+                <div style={{ position: 'relative', width: 62, height: 62 }}>
+                  <img src={hero.img} alt={hero.name} style={{
+                    width: 62, height: 62, borderRadius: '50%', objectFit: 'cover',
+                    border: isSelected ? '2.5px solid #f0d060' : '2.5px solid transparent',
+                  }} />
+                  {isTaken && (
+                    <div style={{
+                      position: 'absolute', inset: 0, borderRadius: '50%',
+                      background: 'rgba(0,0,0,0.55)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, color: '#f87171', fontWeight: 700,
+                    }}>已选</div>
+                  )}
+                  {isSelected && (
+                    <div style={{
+                      position: 'absolute', bottom: -2, right: -2,
+                      width: 18, height: 18, borderRadius: '50%',
+                      background: '#f0d060', color: '#000',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 900,
+                    }}>✓</div>
+                  )}
+                </div>
+                <span style={{ color: isSelected ? '#f0d060' : '#e2e8f0', fontSize: 12, fontWeight: 600 }}>{hero.name}</span>
+              </button>
+            );
+          })}
+        </div>
+        <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, textAlign: 'center', margin: '12px 0 0' }}>
+          未选择则随机分配 · 进入游戏后名字以房间昵称为准
+        </p>
       </div>
     </div>
   );
