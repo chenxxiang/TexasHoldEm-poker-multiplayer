@@ -183,6 +183,9 @@ export default function GameRoom() {
   const [mySocketId, setMySocketId] = useState(socket.id);
   const myNicknameRef = useRef(localStorage.getItem('poker_nickname') || '');
 
+  // me must be defined before any useEffect that references it
+  const me = room?.players?.find(p => p.socketId === mySocketId);
+
   // Keep nickname ref + localStorage in sync
   useEffect(() => {
     if (me?.nickname && myNicknameRef.current !== me.nickname) {
@@ -204,7 +207,6 @@ export default function GameRoom() {
   }, [roomId]);
 
   // Hand hint — must be before any conditional return
-  const me = room?.players?.find(p => p.socketId === mySocketId);
   const myHandHint = useMemo(() => {
     if (!me?.holeCards || me.holeCards.length < 2) return null;
     try {
@@ -273,7 +275,6 @@ export default function GameRoom() {
       setSettlementData(null);
       setSettlementDeadline(null);
       setCardReveals({});
-      const me2 = r.players.find(p => p.socketId === socket.id);
     };
     const onPlayerJoined = ({ room: r }) => setRoom(r);
     const onHandHistory = ({ history }) => setHandHistory(history || []);
@@ -1063,7 +1064,7 @@ function SettlementScreen({
   settlementData, room, mySocketId, settlementCountdown,
   cardReveals, onRevealCards, onReady, onSpectate, onJoinNextHand,
 }) {
-  const { results = [], wasMuckWin, actionLog = [], potBreakdown = [] } = settlementData || {};
+  const { results = [], actionLog = [], potBreakdown = [] } = settlementData || {};
   const me = room?.players?.find(p => p.socketId === mySocketId);
   const myReadyStatus = me?.readyStatus || 'pending';
   const hasRevealed = !!cardReveals[mySocketId];
