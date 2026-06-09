@@ -73,6 +73,21 @@ function spawnBurst(cfg, cx, cy, w, h) {
         tx * 4.5 + nx * 2, ty * 4.5 + ny * 2, rc(C), 1.5 + Math.random() * 3.5,
         65 + Math.random() * 65, 'circle', 0, 0.98));
     }
+    // Leaves swept up by the vortex
+    const LC = ['#22c55e','#4ade80','#86efac','#a3e635','#84cc16','#d4a520','#fde68a','#16a34a'];
+    for (let i = 0; i < 60; i++) {
+      const a = Math.random() * Math.PI * 2, dist = 25 + Math.random() * Math.min(w, h) * .48;
+      const tx = -Math.sin(a), ty = Math.cos(a);
+      const nx = -Math.cos(a), ny = -Math.sin(a);
+      const speed = 3 + Math.random() * 3;
+      ps.push(mkp(cx + Math.cos(a) * dist, cy + Math.sin(a) * dist,
+        tx * speed + nx * (1 + Math.random()),
+        ty * speed + ny * (1 + Math.random()),
+        LC[Math.floor(Math.random() * LC.length)],
+        7 + Math.random() * 9,          // size 7–16 (clearly visible)
+        80 + Math.random() * 55, 'leaf', 0, 0.986,
+        Math.random() * Math.PI * 2, (Math.random() - .5) * .06));  // gentle tumble
+    }
   } else if (e === 'ink') {
     for (let i = 0; i < 230; i++) {
       const a = Math.random() * Math.PI * 2, streak = i % 3 === 0;
@@ -145,6 +160,19 @@ function spawnCont(cfg, cx, cy, w, h) {
         tx * 3.5 - Math.cos(a) * 1.5, ty * 3.5 - Math.sin(a) * 1.5,
         rc(C), 1 + Math.random() * 2.5, 30 + Math.random() * 40, 'circle', 0, .98));
     }
+    // Continuously rain in new leaves from the edges
+    if (Math.random() < .55) {
+      const LC = ['#22c55e','#4ade80','#86efac','#a3e635','#84cc16','#d4a520','#fde68a'];
+      const a = Math.random() * Math.PI * 2;
+      const dist = Math.min(w, h) * (.35 + Math.random() * .25);
+      const tx = -Math.sin(a), ty = Math.cos(a);
+      ps.push(mkp(cx + Math.cos(a) * dist, cy + Math.sin(a) * dist,
+        tx * (2.5 + Math.random() * 2.5) - Math.cos(a) * 1.2,
+        ty * (2.5 + Math.random() * 2.5) - Math.sin(a) * 1.2,
+        LC[Math.floor(Math.random() * LC.length)],
+        8 + Math.random() * 8, 55 + Math.random() * 45, 'leaf', 0, .986,
+        Math.random() * Math.PI * 2, (Math.random() - .5) * .06));
+    }
   } else if (e === 'ice') {
     for (let i = 0; i < 8; i++) {
       ps.push(mkp(cx + (Math.random() - .5) * w * .4, cy - h * .1,
@@ -168,7 +196,7 @@ function drawP(ctx, p) {
   if (al <= 0) return;
   ctx.save();
   ctx.globalAlpha = al;
-  if (p.glow) { ctx.shadowBlur = p.glowR; ctx.shadowColor = p.color; }
+  if (p.glow) { ctx.shadowBlur = p.type === 'leaf' ? 6 : p.glowR; ctx.shadowColor = p.color; }
   if (p.type === 'circle') {
     ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
     ctx.fillStyle = p.color; ctx.fill();
@@ -185,6 +213,20 @@ function drawP(ctx, p) {
       const a = i * Math.PI / 3;
       ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); ctx.stroke();
     }
+  } else if (p.type === 'leaf') {
+    ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    const ll = p.size, lw = p.size * .44;
+    // Leaf body (bezier oval, pointed at both ends)
+    ctx.beginPath();
+    ctx.moveTo(ll, 0);
+    ctx.bezierCurveTo( ll * .5, -lw, -ll * .5, -lw, -ll, 0);
+    ctx.bezierCurveTo(-ll * .5,  lw,  ll * .5,  lw,  ll, 0);
+    ctx.closePath();
+    ctx.fillStyle = p.color; ctx.fill();
+    // Central vein
+    ctx.shadowBlur = 0;
+    ctx.beginPath(); ctx.moveTo(-ll * .82, 0); ctx.lineTo(ll * .82, 0);
+    ctx.strokeStyle = 'rgba(0,0,0,0.28)'; ctx.lineWidth = .75; ctx.stroke();
   }
   ctx.restore();
 }
