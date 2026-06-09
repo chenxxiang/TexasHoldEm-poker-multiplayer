@@ -5,7 +5,7 @@ const CFG = {
   '撸哥':             { C:['#60a5fa','#93c5fd','#fff','#38bdf8','#bfdbfe'],           bg:'radial-gradient(ellipse at 50% 60%,#0c1e4a,#020817)',  flash:'#1d4ed8', glow:'#3b82f6', effect:'lightning', tc:'#93c5fd' },
   '保龙大帝':          { C:['#fbbf24','#f59e0b','#ef4444','#fcd34d','#fff'],           bg:'radial-gradient(ellipse at 50% 60%,#451a03,#1a0800)',  flash:'#d97706', glow:'#f59e0b', effect:'fire',      tc:'#fcd34d' },
   '陈少钧':            { C:['#e0f2fe','#bae6fd','#7dd3fc','#38bdf8','#fff'],           bg:'radial-gradient(ellipse at 50% 50%,#0c2040,#050e1a)',  flash:'#0284c7', glow:'#38bdf8', effect:'stars',     tc:'#7dd3fc' },
-  '翔总':              { C:['#c4b5fd','#a78bfa','#ddd6fe','#ede9fe','#fff'],           bg:'radial-gradient(ellipse at 50% 40%,#2e1065,#0a0118)',  flash:'#7c3aed', glow:'#a78bfa', effect:'sword',     tc:'#c4b5fd' },
+  '翔总':              { C:['#38bdf8','#7dd3fc','#bae6fd','#e0f9ff','#fff','#0ea5e9'], bg:'radial-gradient(ellipse at 50% 40%,#082847,#030d1a)',  flash:'#0369a1', glow:'#38bdf8', effect:'sword',     tc:'#7dd3fc' },
   '思婷':              { C:['#e0f2fe','#bae6fd','#cffafe','#a5f3fc','#fff'],           bg:'radial-gradient(ellipse at 50% 40%,#0e3156,#020d1a)',  flash:'#0369a1', glow:'#38bdf8', effect:'ice',       tc:'#bae6fd' },
   '标桑':              { C:['#6ee7b7','#34d399','#a7f3d0','#10b981','#d1fae5'],        bg:'radial-gradient(ellipse at 50% 50%,#064e3b,#011a14)',  flash:'#059669', glow:'#10b981', effect:'vortex',    tc:'#6ee7b7' },
   '大胖':              { C:['#fcd34d','#fbbf24','#f59e0b','#fde68a','#fff'],           bg:'radial-gradient(ellipse at 50% 60%,#451a03,#1a0a00)',  flash:'#b45309', glow:'#f59e0b', effect:'fireworks', tc:'#fcd34d' },
@@ -49,11 +49,22 @@ function spawnBurst(cfg, cx, cy, w, h) {
         0.07, 0.97, Math.random() * Math.PI * 2, (Math.random() - .5) * .16));
     }
   } else if (e === 'sword') {
+    // Radial spark burst
     for (let i = 0; i < 260; i++) {
       const a = Math.random() * Math.PI * 2, sp = 4 + Math.random() * 16;
       ps.push(mkp(cx + (Math.random() - .5) * 30, cy + (Math.random() - .5) * 30,
         Math.cos(a) * sp, Math.sin(a) * sp, rc(C), 1 + Math.random() * 2.5,
         48 + Math.random() * 65, 'spark', 0.07, 0.95));
+    }
+    // Wind stream particles — fast horizontal flow
+    for (let i = 0; i < 130; i++) {
+      const spd = 6 + Math.random() * 14;
+      ps.push(mkp(
+        cx + (Math.random() - .5) * w * .7,
+        cy + (Math.random() - .5) * h * .85,
+        spd, (Math.random() - .5) * 2.5,
+        rc(C), .35 + Math.random() * 1.1,
+        10 + Math.random() * 28, 'spark', 0, .97));
     }
   } else if (e === 'fireworks') {
     const bp = [[0, -.3], [-.35, -.1], [.35, -.1], [-.2, .2], [.2, .2]].map(([dx, dy]) => [cx + dx * w, cy + dy * h]);
@@ -173,6 +184,16 @@ function spawnCont(cfg, cx, cy, w, h) {
         8 + Math.random() * 8, 55 + Math.random() * 45, 'leaf', 0, .986,
         Math.random() * Math.PI * 2, (Math.random() - .5) * .06));
     }
+  } else if (e === 'sword') {
+    // Continuous wind gusts from the left edge
+    for (let i = 0; i < 8; i++) {
+      const spd = 7 + Math.random() * 13;
+      ps.push(mkp(
+        -20, cy + (Math.random() - .5) * h * .9,
+        spd, (Math.random() - .5) * 2,
+        rc(C), .3 + Math.random() * 1.2,
+        8 + Math.random() * 22, 'spark', 0, .98));
+    }
   } else if (e === 'ice') {
     for (let i = 0; i < 8; i++) {
       ps.push(mkp(cx + (Math.random() - .5) * w * .4, cy - h * .1,
@@ -232,7 +253,7 @@ function drawP(ctx, p) {
 }
 
 // ── Draw a real sword (in local space, blade points right from origin) ───────
-function drawSword(ctx, x, y, angle, alpha) {
+function drawSword(ctx, x, y, angle, alpha, glowColor = '#38bdf8') {
   if (alpha <= 0) return;
   const BL = 200, BW = 9, GW = 50, GH = 11, GL = 58, PM = 12;
   ctx.save();
@@ -241,7 +262,7 @@ function drawSword(ctx, x, y, angle, alpha) {
   ctx.globalAlpha *= alpha;
 
   // Blade glow aura
-  ctx.shadowColor = '#a78bfa'; ctx.shadowBlur = 28;
+  ctx.shadowColor = glowColor; ctx.shadowBlur = 28;
 
   // Blade fill — silver steel gradient across width
   const bg = ctx.createLinearGradient(0, -BW, 0, BW);
@@ -261,8 +282,8 @@ function drawSword(ctx, x, y, angle, alpha) {
   ctx.strokeStyle = 'rgba(100,120,160,0.5)'; ctx.lineWidth = 0.9; ctx.stroke();
 
   // Blade edge highlights
-  ctx.shadowColor = '#c4b5fd'; ctx.shadowBlur = 10;
-  ctx.strokeStyle = 'rgba(220,215,255,0.72)'; ctx.lineWidth = 0.6;
+  ctx.shadowColor = glowColor; ctx.shadowBlur = 10;
+  ctx.strokeStyle = 'rgba(200,238,255,0.72)'; ctx.lineWidth = 0.6;
   ctx.beginPath(); ctx.moveTo(BL, 0); ctx.lineTo(5, -BW); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(BL, 0); ctx.lineTo(5,  BW); ctx.stroke();
 
@@ -342,51 +363,78 @@ function drawSpecial(ctx, cfg, w, h, cx, cy, frame, boltsRef) {
     ctx.restore();
   }
 
-  // ── Sword sweep: real drawn sword with trail + residual slash mark ──
+  // ── 5-sword volley + wind streaks (御风剑仙) ──────────────────────────────
   if (e === 'sword') {
-    // Guard position moves from off-screen left to off-screen right
-    const SSTART = 4, SEND = 36, SEXIT = 52;
-    const gx0 = -290, gy0 = h * .18;
-    const gx1 = w + 100, gy1 = h * .62;
-    const sweepAngle = Math.atan2(gy1 - gy0, gx1 - gx0);
-    const eio = t => t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+    const eio = t => t < .5 ? 2*t*t : -1+(4-2*t)*t;
 
-    const guardPos = (f) => {
-      if (f < SSTART || f > SEXIT) return null;
-      let p = f <= SEND
-        ? eio((f - SSTART) / (SEND - SSTART))
-        : 1 + (f - SEND) / (SEXIT - SEND) * 0.18;
-      return { x: gx0 + p * (gx1 - gx0), y: gy0 + p * (gy1 - gy0) };
-    };
+    // [startFrame, duration, gx0, gy0fraction, gx1, gy1fraction]
+    const RUNS = [
+      [4,  27, -290, .13, w+100, .50],
+      [14, 26, -275, .33, w+90,  .67],
+      [24, 25, -305, .05, w+105, .41],
+      [33, 26, -265, .50, w+88,  .80],
+      [43, 25, -280, .22, w+95,  .57],
+    ];
 
-    const cur = guardPos(frame);
-    if (cur) {
-      // Motion trail — 6 ghost copies fading behind
-      for (let t = 6; t >= 1; t--) {
-        const past = guardPos(frame - t);
-        if (past) drawSword(ctx, past.x, past.y, sweepAngle, (1 - t / 7) * 0.3);
+    RUNS.forEach(([st, dur, gx0, gy0f, gx1, gy1f]) => {
+      const gy0 = h * gy0f, gy1 = h * gy1f;
+      const ang = Math.atan2(gy1-gy0, gx1-gx0);
+      const EXIT = st + dur + 16;
+
+      const gp = (f) => {
+        if (f < st || f > EXIT) return null;
+        const p = f <= st+dur ? eio((f-st)/dur) : 1+(f-st-dur)/16*.18;
+        return [gx0+p*(gx1-gx0), gy0+p*(gy1-gy0)];
+      };
+
+      // Sword + 4-frame trail
+      const cur = gp(frame);
+      if (cur) {
+        for (let t = 4; t >= 1; t--) {
+          const p = gp(frame-t);
+          if (p) drawSword(ctx, p[0], p[1], ang, (1-t/5)*.28, '#38bdf8');
+        }
+        drawSword(ctx, cur[0], cur[1], ang, 1.0, '#38bdf8');
       }
-      drawSword(ctx, cur.x, cur.y, sweepAngle, 1.0);
-    }
 
-    // Residual slash mark across the whole screen (fades over 95 frames after sword exits)
-    if (frame >= SEND) {
-      const age = frame - SEND;
-      if (age <= 95) {
-        const al = Math.pow(1 - age / 95, 0.55);
-        const tan_a = (gy1 - gy0) / (gx1 - gx0);
-        const lsy = gy0 + (0 - gx0) * tan_a;
-        const ley = gy0 + (w - gx0) * tan_a;
+      // Blue slash mark fades after each sword
+      if (frame >= st+dur) {
+        const age = frame-(st+dur);
+        if (age <= 80) {
+          const al = Math.pow(1-age/80, .5);
+          const ta = (gy1-gy0)/(gx1-gx0);
+          const y0 = gy0-gx0*ta, y1 = gy0+(w-gx0)*ta;
+          ctx.save();
+          ctx.globalAlpha = al*.22; ctx.strokeStyle='#0ea5e9';
+          ctx.shadowColor='#38bdf8'; ctx.shadowBlur=36; ctx.lineWidth=14;
+          ctx.beginPath(); ctx.moveTo(0,y0); ctx.lineTo(w,y1); ctx.stroke();
+          ctx.globalAlpha = al*.52; ctx.strokeStyle='#7dd3fc';
+          ctx.shadowBlur=14; ctx.lineWidth=3.5;
+          ctx.beginPath(); ctx.moveTo(0,y0); ctx.lineTo(w,y1); ctx.stroke();
+          ctx.globalAlpha = al*.88; ctx.strokeStyle='rgba(224,249,255,.9)';
+          ctx.shadowColor='#e0f9ff'; ctx.shadowBlur=5; ctx.lineWidth=1.0;
+          ctx.beginPath(); ctx.moveTo(0,y0); ctx.lineTo(w,y1); ctx.stroke();
+          ctx.restore();
+        }
+      }
+    });
+
+    // Wind streaks — thin horizontal lines, 40 gusts spanning full animation
+    for (let g = 0; g < 40; g++) {
+      const sf = g * 5 + 2;
+      const age = frame - sf;
+      if (age >= 0 && age <= 18) {
+        const al = Math.sin(age/18*Math.PI) * .52;
+        const gy = h * ((g * .618034) % 1.0);
         ctx.save();
-        ctx.globalAlpha = al * .30; ctx.strokeStyle = '#7c3aed';
-        ctx.shadowColor = '#a78bfa'; ctx.shadowBlur = 40; ctx.lineWidth = 16;
-        ctx.beginPath(); ctx.moveTo(0, lsy); ctx.lineTo(w, ley); ctx.stroke();
-        ctx.globalAlpha = al * .60; ctx.strokeStyle = '#c4b5fd';
-        ctx.shadowBlur = 16; ctx.lineWidth = 4;
-        ctx.beginPath(); ctx.moveTo(0, lsy); ctx.lineTo(w, ley); ctx.stroke();
-        ctx.globalAlpha = al; ctx.strokeStyle = 'rgba(240,236,255,.95)';
-        ctx.shadowColor = '#e9d5ff'; ctx.shadowBlur = 6; ctx.lineWidth = 1.2;
-        ctx.beginPath(); ctx.moveTo(0, lsy); ctx.lineTo(w, ley); ctx.stroke();
+        ctx.globalAlpha = al;
+        ctx.strokeStyle = '#7dd3fc';
+        ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 5;
+        ctx.lineWidth = .5 + (g%3)*.45;
+        ctx.beginPath();
+        ctx.moveTo(0, gy + (g%5-2)*3);
+        ctx.lineTo(w, gy);
+        ctx.stroke();
         ctx.restore();
       }
     }
