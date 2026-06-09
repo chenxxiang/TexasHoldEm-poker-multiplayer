@@ -189,6 +189,77 @@ function drawP(ctx, p) {
   ctx.restore();
 }
 
+// ── Draw a real sword (in local space, blade points right from origin) ───────
+function drawSword(ctx, x, y, angle, alpha) {
+  if (alpha <= 0) return;
+  const BL = 200, BW = 9, GW = 50, GH = 11, GL = 58, PM = 12;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.globalAlpha *= alpha;
+
+  // Blade glow aura
+  ctx.shadowColor = '#a78bfa'; ctx.shadowBlur = 28;
+
+  // Blade fill — silver steel gradient across width
+  const bg = ctx.createLinearGradient(0, -BW, 0, BW);
+  bg.addColorStop(0,    '#3c4a6a');
+  bg.addColorStop(0.28, '#b0c0e0');
+  bg.addColorStop(0.5,  '#f0f4ff');
+  bg.addColorStop(0.72, '#b0c0e0');
+  bg.addColorStop(1,    '#3c4a6a');
+  ctx.beginPath();
+  ctx.moveTo(BL, 0); ctx.lineTo(5, -BW); ctx.lineTo(-5, 0); ctx.lineTo(5, BW);
+  ctx.closePath();
+  ctx.fillStyle = bg; ctx.fill();
+
+  // Fuller (blood groove line)
+  ctx.shadowBlur = 0;
+  ctx.beginPath(); ctx.moveTo(BL * 0.15, 0); ctx.lineTo(BL * 0.87, 0);
+  ctx.strokeStyle = 'rgba(100,120,160,0.5)'; ctx.lineWidth = 0.9; ctx.stroke();
+
+  // Blade edge highlights
+  ctx.shadowColor = '#c4b5fd'; ctx.shadowBlur = 10;
+  ctx.strokeStyle = 'rgba(220,215,255,0.72)'; ctx.lineWidth = 0.6;
+  ctx.beginPath(); ctx.moveTo(BL, 0); ctx.lineTo(5, -BW); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(BL, 0); ctx.lineTo(5,  BW); ctx.stroke();
+
+  // Guard (gold ellipse)
+  ctx.shadowColor = '#f0c040'; ctx.shadowBlur = 9;
+  const gg = ctx.createLinearGradient(-GW, 0, GW, 0);
+  gg.addColorStop(0,    '#5a3c08'); gg.addColorStop(0.22, '#b88018');
+  gg.addColorStop(0.5,  '#f0d060'); gg.addColorStop(0.78, '#b88018');
+  gg.addColorStop(1,    '#5a3c08');
+  ctx.beginPath(); ctx.ellipse(0, 0, GW, GH, 0, 0, Math.PI * 2);
+  ctx.fillStyle = gg; ctx.fill();
+
+  // Grip (leather-wrapped)
+  ctx.shadowBlur = 0;
+  const grg = ctx.createLinearGradient(0, -BW * .45, 0, BW * .45);
+  grg.addColorStop(0,    '#150a04'); grg.addColorStop(0.35, '#3e2210');
+  grg.addColorStop(0.5,  '#5e3820'); grg.addColorStop(0.65, '#3e2210');
+  grg.addColorStop(1,    '#150a04');
+  ctx.beginPath(); ctx.rect(-GL, -BW * .45, GL, BW * .9);
+  ctx.fillStyle = grg; ctx.fill();
+  ctx.strokeStyle = 'rgba(80,45,15,0.6)'; ctx.lineWidth = 1.2;
+  for (let i = 1; i < 6; i++) {
+    ctx.beginPath();
+    ctx.moveTo(-(i / 6) * GL, -BW * .45);
+    ctx.lineTo(-(i / 6) * GL,  BW * .45);
+    ctx.stroke();
+  }
+
+  // Pommel (gold disc)
+  ctx.shadowColor = '#f0c040'; ctx.shadowBlur = 7;
+  const px = -GL - PM * .55;
+  const pmg = ctx.createRadialGradient(px - 3, -3, 1, px, 0, PM);
+  pmg.addColorStop(0, '#ffe070'); pmg.addColorStop(0.45, '#c89020'); pmg.addColorStop(1, '#5a3c08');
+  ctx.beginPath(); ctx.arc(px, 0, PM, 0, Math.PI * 2);
+  ctx.fillStyle = pmg; ctx.fill();
+
+  ctx.restore();
+}
+
 // ── Special effects (lightning bolts, sword slashes, etc.) ───────────────────
 function genBolt(x1, y1, x2, y2, d) {
   if (d === 0 || Math.hypot(x2 - x1, y2 - y1) < 8) return [[x2, y2]];
@@ -229,18 +300,54 @@ function drawSpecial(ctx, cfg, w, h, cx, cy, frame, boltsRef) {
     ctx.restore();
   }
 
-  // Sword slashes (fade out over 30 frames)
-  if (e === 'sword' && frame < 30) {
-    const al = 1 - frame / 30;
-    ctx.save();
-    for (let i = 0; i < 4; i++) {
-      const y = h * (.22 + i * .19);
-      const sk = (i % 2 ? 1 : -1) * h * .055 * (1 - frame / 30);
-      ctx.strokeStyle = `rgba(196,181,253,${al * (.5 + i * .08)})`;
-      ctx.shadowColor = '#a78bfa'; ctx.shadowBlur = 20 - i * 2; ctx.lineWidth = 2.3 - i * .4;
-      ctx.beginPath(); ctx.moveTo(-20, y + sk); ctx.lineTo(w + 20, y - sk); ctx.stroke();
+  // ── Sword sweep: real drawn sword with trail + residual slash mark ──
+  if (e === 'sword') {
+    // Guard position moves from off-screen left to off-screen right
+    const SSTART = 4, SEND = 36, SEXIT = 52;
+    const gx0 = -290, gy0 = h * .18;
+    const gx1 = w + 100, gy1 = h * .62;
+    const sweepAngle = Math.atan2(gy1 - gy0, gx1 - gx0);
+    const eio = t => t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+
+    const guardPos = (f) => {
+      if (f < SSTART || f > SEXIT) return null;
+      let p = f <= SEND
+        ? eio((f - SSTART) / (SEND - SSTART))
+        : 1 + (f - SEND) / (SEXIT - SEND) * 0.18;
+      return { x: gx0 + p * (gx1 - gx0), y: gy0 + p * (gy1 - gy0) };
+    };
+
+    const cur = guardPos(frame);
+    if (cur) {
+      // Motion trail — 6 ghost copies fading behind
+      for (let t = 6; t >= 1; t--) {
+        const past = guardPos(frame - t);
+        if (past) drawSword(ctx, past.x, past.y, sweepAngle, (1 - t / 7) * 0.3);
+      }
+      drawSword(ctx, cur.x, cur.y, sweepAngle, 1.0);
     }
-    ctx.restore();
+
+    // Residual slash mark across the whole screen (fades over 95 frames after sword exits)
+    if (frame >= SEND) {
+      const age = frame - SEND;
+      if (age <= 95) {
+        const al = Math.pow(1 - age / 95, 0.55);
+        const tan_a = (gy1 - gy0) / (gx1 - gx0);
+        const lsy = gy0 + (0 - gx0) * tan_a;
+        const ley = gy0 + (w - gx0) * tan_a;
+        ctx.save();
+        ctx.globalAlpha = al * .30; ctx.strokeStyle = '#7c3aed';
+        ctx.shadowColor = '#a78bfa'; ctx.shadowBlur = 40; ctx.lineWidth = 16;
+        ctx.beginPath(); ctx.moveTo(0, lsy); ctx.lineTo(w, ley); ctx.stroke();
+        ctx.globalAlpha = al * .60; ctx.strokeStyle = '#c4b5fd';
+        ctx.shadowBlur = 16; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(0, lsy); ctx.lineTo(w, ley); ctx.stroke();
+        ctx.globalAlpha = al; ctx.strokeStyle = 'rgba(240,236,255,.95)';
+        ctx.shadowColor = '#e9d5ff'; ctx.shadowBlur = 6; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(0, lsy); ctx.lineTo(w, ley); ctx.stroke();
+        ctx.restore();
+      }
+    }
   }
 
   // Ink expanding rings
