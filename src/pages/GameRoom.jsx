@@ -4,6 +4,8 @@ import { socket } from '../context/SocketContext';
 import Card from '../components/Card';
 import { playActionSound } from '../helpers/sounds';
 import { Hand } from 'pokersolver';
+import { HEROES, TITLE_TYPE_STYLE } from '../data/heroes';
+import WinAnimation from '../components/WinAnimation';
 
 // ── Speech synthesis: pre-load voices for mobile (Huawei/Android) ──
 let _cachedVoice = null;
@@ -72,39 +74,6 @@ const PHASE_LABELS = {
 };
 const AVATARS = ['🐯','🦁','🐻','🐼','🐨','🦊','🐺','🐸','🐮','🐷'];
 
-const TITLE_TYPE_STYLE = {
-  '尊号': { bg: '#7c3aed', color: '#fff' },
-  '仙号': { bg: '#db2777', color: '#fff' },
-  '道号': { bg: '#0d9488', color: '#fff' },
-};
-
-const HERO_SEASONS = [
-  {
-    season: 'S1',
-    heroes: [
-      { id: '保龙大帝',        name: '天龙',  img: '/heroes/保龙大帝.png',        title: '苍穹龙尊', titleType: '尊号', desc: '朝翔九霄，镇压四方，龙威震天地。' },
-      { id: '撸哥',           name: '卢震',  img: '/heroes/撸哥.png',            title: '雷渊震尊', titleType: '尊号', desc: '雷法通玄，震慑八荒，一声轰鸣动九渊。' },
-      { id: '陈少钧',          name: '陈少钧', img: '/heroes/陈少钧.png',          title: '玉衡天君', titleType: '尊号', desc: '少年持衡，权衡天地，执掌乾坤正道。' },
-      { id: '翔总',            name: '陈翔',  img: '/heroes/翔总.png',            title: '御风剑仙', titleType: '仙号', desc: '踏剑御风，凌空而翔，剑气贯日月。' },
-      { id: '思婷',            name: '思婷',  img: '/heroes/思婷.png',            title: '霜华仙子', titleType: '仙号', desc: '思若幽兰，姿若霜华，清冷绝尘世间。' },
-      { id: '标桑',            name: '阿标',  img: '/heroes/阿标.png',            title: '玄风游客', titleType: '道号', desc: '来去无踪，身似浮云，随风而游四海。' },
-      { id: '大胖',            name: '大胖',  img: '/heroes/大胖.png',            title: '圆满道君', titleType: '道号', desc: '体魄浑圆，功德圆满，福泽天下苍生。' },
-      { id: '韬少',            name: '文韬',  img: '/heroes/韬少.png',            title: '藏锋散人', titleType: '道号', desc: '韬光养晦，文蕴深藏，一朝出鞘惊天地。' },
-      { id: '大傻(美少女形态)', name: '大傻',  img: '/heroes/大傻(美少女形态).png', title: '混沌真人', titleType: '道号', desc: '大智若愚，混沌藏道，傻中自有乾坤。' },
-    ],
-  },
-  {
-    season: 'S2',
-    heroes: [
-      { id: '徐P',   name: '徐P',   img: '/heroes/徐P.png' },
-      { id: '牢丁',  name: '牢丁',  img: '/heroes/牢丁.png' },
-      { id: '？？',  name: '？？',  img: '/heroes/？？.png' },
-      { id: '？？？', name: '？？？', img: '/heroes/？？？.png' },
-    ],
-  },
-];
-
-const HEROES = HERO_SEASONS.flatMap(s => s.heroes);
 
 const THEMES = {
   macau: {
@@ -116,7 +85,7 @@ const THEMES = {
   xianfeng: {
     id: 'xianfeng',
     name: '仙风道骨',
-    bg: '/天宫.jpg',
+    bg: '/天宫2.png',
     bgStyle: { top: '-18%', height: '118%' },
     text: {
       fold: '认负', call: '接招', check: '静观', raise: '出招', confirm: '出手',
@@ -232,6 +201,9 @@ export default function GameRoom() {
   const [rebuyError, setRebuyError] = useState('');
   const [settlementData, setSettlementData] = useState(null);
   const [winAnimating, setWinAnimating] = useState(false);
+  const [showWinAnim, setShowWinAnim] = useState(false);
+  const [winAnimHero, setWinAnimHero] = useState(null);
+  const [pendingSettlement, setPendingSettlement] = useState(null);
   const [settlementDeadline, setSettlementDeadline] = useState(null);
   const [settlementCountdown, setSettlementCountdown] = useState(0);
   const [cardReveals, setCardReveals] = useState({});
@@ -363,10 +335,26 @@ export default function GameRoom() {
     const onHandHistory = ({ history }) => setHandHistory(history || []);
     const onShowdown = ({ room: r, results, wasMuckWin, settlementDeadline: deadline, potBreakdown, isReconnect, actionLog }) => {
       setRoom(r);
-      setSettlementData({ results: results || [], wasMuckWin, actionLog: actionLog || [], potBreakdown: potBreakdown || [] });
-      setSettlementDeadline(deadline);
       setCardReveals({});
       setMessage('');
+      const payload = { results: results || [], wasMuckWin, actionLog: actionLog || [], potBreakdown: potBreakdown || [] };
+      if (!isReconnect && results?.length) {
+        const winners = results.filter(rs => rs.delta > 0);
+        if (winners.length === 1) {
+          const wp = r.players?.find(p => p.nickname === winners[0].nickname);
+          if (wp?.heroId) {
+            const hero = HEROES.find(h => h.id === wp.heroId);
+            if (hero?.title) {
+              setPendingSettlement({ data: payload, deadline });
+              setWinAnimHero(hero);
+              setShowWinAnim(true);
+              return;
+            }
+          }
+        }
+      }
+      setSettlementData(payload);
+      setSettlementDeadline(deadline);
       if (!isReconnect) {
         setWinAnimating(true);
         setTimeout(() => setWinAnimating(false), 1000);
@@ -982,6 +970,27 @@ export default function GameRoom() {
           .xf-call  { animation: xf-glow-call  2s   ease-in-out infinite; }
           .xf-raise { animation: xf-glow-raise 2.2s ease-in-out infinite; }
           .xf-raise-confirm { animation: xf-glow-raise-confirm 1s ease-in-out infinite; }
+
+          /* ── 炫彩名牌动画 ── */
+          .title-badge { background-size: 200% auto; }
+          @keyframes tbz-shine { 0%{background-position:0% center} 100%{background-position:200% center} }
+          @keyframes tbz-pulse {
+            0%,100% { box-shadow: 0 0 5px rgba(167,85,247,0.55), 0 0 2px rgba(240,208,96,0.3); }
+            50%     { box-shadow: 0 0 14px rgba(167,85,247,1),   0 0 7px rgba(240,208,96,0.75); }
+          }
+          @keyframes tbx-shine { 0%{background-position:0% center} 100%{background-position:200% center} }
+          @keyframes tbx-pulse {
+            0%,100% { box-shadow: 0 0 5px rgba(244,114,182,0.55); }
+            50%     { box-shadow: 0 0 14px rgba(244,114,182,1); }
+          }
+          @keyframes tbd-shine { 0%{background-position:0% center} 100%{background-position:200% center} }
+          @keyframes tbd-pulse {
+            0%,100% { box-shadow: 0 0 5px rgba(45,212,191,0.55); }
+            50%     { box-shadow: 0 0 13px rgba(45,212,191,1); }
+          }
+          .tbz { background: linear-gradient(90deg,#5b21b6,#a855f7,#f0d060,#a855f7,#5b21b6); animation: tbz-shine 2.5s linear infinite, tbz-pulse 2s ease-in-out infinite; }
+          .tbx { background: linear-gradient(90deg,#9d174d,#ec4899,#fce7f3,#ec4899,#9d174d); animation: tbx-shine 3.5s linear infinite, tbx-pulse 3s ease-in-out infinite; }
+          .tbd { background: linear-gradient(90deg,#065f46,#10b981,#a7f3d0,#10b981,#065f46); animation: tbd-shine 4s linear infinite, tbd-pulse 3.5s ease-in-out infinite; }
         `}</style>
 
         {showTauntPicker && (
@@ -1005,11 +1014,24 @@ export default function GameRoom() {
           <HandHistoryPanel history={handHistory} onClose={() => setShowHistory(false)} />
         )}
 
-        {winAnimating && settlementData && (
-          <WinAnimation results={settlementData.results} />
+        {showWinAnim && winAnimHero && (
+          <WinAnimation
+            hero={winAnimHero}
+            onDone={() => {
+              setShowWinAnim(false);
+              setWinAnimHero(null);
+              if (pendingSettlement) {
+                setSettlementData(pendingSettlement.data);
+                setSettlementDeadline(pendingSettlement.deadline);
+                setWinAnimating(true);
+                setTimeout(() => setWinAnimating(false), 1000);
+                setPendingSettlement(null);
+              }
+            }}
+          />
         )}
 
-        {(room.phase === 'settlement' || settlementData) && !winAnimating && (
+        {(room.phase === 'settlement' || settlementData) && !winAnimating && !showWinAnim && (
           <SettlementScreen
             settlementData={settlementData}
             room={room}
@@ -1089,6 +1111,30 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
 }
 
 // ── Avatar with timer ring ─────────────────────────────────────
+// ── 炫彩称号名牌 ─────────────────────────────────────────────
+function TitleBadge({ hero, isMe }) {
+  if (!hero?.title || !hero?.titleType) return null;
+  const cfgs = { '尊号': 'tbz', '仙号': 'tbx', '道号': 'tbd' };
+  const cls = cfgs[hero.titleType] || 'tbz';
+  return (
+    <div
+      className={`title-badge ${cls}`}
+      style={{
+        padding: isMe ? '2px 8px' : '1px 5px',
+        fontSize: isMe ? 9.5 : 8,
+        maxWidth: isMe ? 100 : 84,
+        borderRadius: 6, fontWeight: 800,
+        letterSpacing: '0.05em', color: '#fff',
+        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        textShadow: '0 1px 3px rgba(0,0,0,0.9)',
+        border: '0.5px solid rgba(255,255,255,0.25)',
+      }}
+    >
+      {hero.titleType}·{hero.title}
+    </div>
+  );
+}
+
 function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime, bubble, onAvatarClick, actionBadge, raisePopup, theme }) {
   const CIRCUMFERENCE = 2 * Math.PI * 20;
   const duration = timerInfo?.duration || 20;
@@ -1179,6 +1225,9 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
             }}>{posLabel}</span>
           )}
         </div>
+
+        {/* Title badge — shown when player has a hero with a title */}
+        {player.heroId && <TitleBadge hero={hero} isMe={isMe} />}
 
         {/* Name / chip info */}
         <div style={{ textAlign: 'center', maxWidth: isMe ? 84 : 72 }}>
@@ -1590,9 +1639,6 @@ function SettlementScreen({
 // ── Waiting room overlay ───────────────────────────────────────
 function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
   const tx = (key, def) => theme?.text?.[key] ?? def;
-  const [showHeroPicker, setShowHeroPicker] = useState(false);
-  const me = room.players.find(p => p.socketId === mySocketId);
-  const myHero = me?.heroId ? HEROES.find(h => h.id === me.heroId) : null;
 
   return (
     <div style={{
@@ -1604,26 +1650,6 @@ function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
           <p style={{ color: 'rgba(240,208,96,0.5)', fontSize: 13, margin: '0 0 6px' }}>分享房间号给朋友</p>
           <p style={{ color: '#f0d060', fontSize: 40, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '0.2em', margin: 0 }}>{room.roomId}</p>
         </div>
-
-        {/* Hero selection button */}
-        <button
-          onClick={() => setShowHeroPicker(true)}
-          style={{
-            width: '100%', padding: '10px 0', borderRadius: 12, cursor: 'pointer',
-            background: myHero ? 'rgba(240,208,96,0.15)' : 'rgba(59,130,246,0.18)',
-            border: `1.5px solid ${myHero ? 'rgba(240,208,96,0.5)' : 'rgba(59,130,246,0.45)'}`,
-            color: myHero ? '#f0d060' : '#93c5fd',
-            fontWeight: 700, fontSize: 14, marginBottom: 14,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-          }}
-        >
-          {myHero ? (
-            <>
-              <img src={myHero.img} style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' }} alt="" />
-              {myHero.name} · 更换{tx('heroNoun', '英雄')}
-            </>
-          ) : `🦸 ${tx('heroPickerTitle', '选择你的英雄')}`}
-        </button>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
           {room.players.map(p => {
@@ -1641,9 +1667,14 @@ function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
                       {p.nickname}
                       {p.socketId === mySocketId && <span style={{ color: '#f0d060', fontSize: 11 }}> (我)</span>}
                     </div>
-                    <div style={{ fontSize: 11, color: p.heroId ? '#f0d060' : 'rgba(255,255,255,0.28)' }}>
-                      {hero.name}{!p.heroId && ' (随机)'}
-                    </div>
+                    {p.heroId && hero.title && hero.titleType && (
+                      <div style={{
+                        fontSize: 10, fontWeight: 700, marginTop: 2,
+                        color: TITLE_TYPE_STYLE[hero.titleType]?.bg || '#f0d060',
+                      }}>
+                        {hero.titleType}·{hero.title}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1688,191 +1719,6 @@ function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
         )}
       </div>
 
-      {showHeroPicker && (
-        <HeroPicker
-          players={room.players}
-          mySocketId={mySocketId}
-          myHeroId={me?.heroId}
-          onSelect={(heroId) => {
-            socket.emit('selectHero', { roomId, heroId });
-            setShowHeroPicker(false);
-          }}
-          onClose={() => setShowHeroPicker(false)}
-          theme={theme}
-        />
-      )}
-    </div>
-  );
-}
-
-// ── 英雄选择器 ────────────────────────────────────────────────
-function HeroPicker({ players, mySocketId, myHeroId, onSelect, onClose, theme }) {
-  const tx = (key, def) => theme?.text?.[key] ?? def;
-  const claimedByOthers = new Set(
-    players.filter(p => p.heroId && p.socketId !== mySocketId).map(p => p.heroId)
-  );
-  const SEASON_COLORS = { S1: '#f0d060', S2: '#a78bfa' };
-
-  return (
-    <div style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.92)' }} onClick={onClose}>
-      <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-        display: 'flex', flexDirection: 'column',
-        margin: '24px 16px',
-        background: '#111c30', borderRadius: 22,
-        border: '1px solid rgba(240,208,96,0.22)',
-        overflow: 'hidden',
-      }} onClick={e => e.stopPropagation()}>
-
-        {/* 固定标题栏 */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '16px 20px 12px', flexShrink: 0,
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
-        }}>
-          <h3 style={{ color: '#f0d060', fontWeight: 700, fontSize: 18, margin: 0 }}>🦸 {tx('heroPickerTitle', '选择你的英雄')}</h3>
-          <button onClick={onClose} style={{ color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none', fontSize: 24, cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
-        </div>
-
-        {/* 可滚动内容区 */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 16px' }}>
-          {HERO_SEASONS.map(({ season, heroes }) => (
-            <div key={season} style={{ marginBottom: 18 }}>
-              {/* 赛季标题 */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <span style={{
-                  background: SEASON_COLORS[season] || '#f0d060',
-                  color: '#0a0f1a', fontWeight: 900, fontSize: 11,
-                  padding: '2px 10px', borderRadius: 8,
-                }}>{season}</span>
-                <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
-              </div>
-
-              {/* S1: 每行一张大卡片 */}
-              {season === 'S1' ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {heroes.map(hero => {
-                    const isTaken = claimedByOthers.has(hero.id);
-                    const isSelected = hero.id === myHeroId;
-                    const ts = TITLE_TYPE_STYLE[hero.titleType] || { bg: '#374151', color: '#fff' };
-                    return (
-                      <button
-                        key={hero.id}
-                        onClick={() => !isTaken && onSelect(hero.id)}
-                        disabled={isTaken}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 14,
-                          background: isSelected ? 'rgba(240,208,96,0.12)' : 'rgba(255,255,255,0.04)',
-                          border: `1.5px solid ${isSelected ? '#f0d060' : isTaken ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)'}`,
-                          borderRadius: 16, padding: '10px 14px',
-                          cursor: isTaken ? 'not-allowed' : 'pointer',
-                          opacity: isTaken ? 0.35 : 1,
-                          textAlign: 'left', width: '100%',
-                        }}
-                      >
-                        {/* 大头像 */}
-                        <div style={{ position: 'relative', flexShrink: 0 }}>
-                          <img src={hero.img} alt={hero.name} style={{
-                            width: 68, height: 68, borderRadius: '50%', objectFit: 'cover',
-                            border: `2.5px solid ${isSelected ? '#f0d060' : isTaken ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.2)'}`,
-                          }} />
-                          {isTaken && (
-                            <div style={{
-                              position: 'absolute', inset: 0, borderRadius: '50%',
-                              background: 'rgba(0,0,0,0.6)',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              fontSize: 12, color: '#f87171', fontWeight: 700,
-                            }}>已选</div>
-                          )}
-                          {isSelected && (
-                            <div style={{
-                              position: 'absolute', bottom: 0, right: 0,
-                              width: 20, height: 20, borderRadius: '50%',
-                              background: '#f0d060', color: '#000',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              fontSize: 12, fontWeight: 900, border: '2px solid #111c30',
-                            }}>✓</div>
-                          )}
-                        </div>
-
-                        {/* 文字信息 */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
-                            <span style={{ color: isSelected ? '#f0d060' : '#fff', fontWeight: 700, fontSize: 15 }}>{hero.name}</span>
-                            {hero.title && <span style={{ color: 'rgba(255,255,255,0.55)', fontWeight: 800, fontSize: 14 }}>{hero.title}</span>}
-                            {hero.titleType && (
-                              <span style={{
-                                background: ts.bg, color: ts.color,
-                                fontSize: 10, fontWeight: 700,
-                                padding: '1px 6px', borderRadius: 6, flexShrink: 0,
-                              }}>{hero.titleType}</span>
-                            )}
-                          </div>
-                          {hero.desc && (
-                            <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, lineHeight: 1.5 }}>{hero.desc}</div>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                /* S2: 3列小格子 */
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
-                  {heroes.map(hero => {
-                    const isTaken = claimedByOthers.has(hero.id);
-                    const isSelected = hero.id === myHeroId;
-                    return (
-                      <button
-                        key={hero.id}
-                        onClick={() => !isTaken && onSelect(hero.id)}
-                        disabled={isTaken}
-                        style={{
-                          background: isSelected ? 'rgba(167,139,250,0.18)' : 'rgba(255,255,255,0.06)',
-                          border: `2px solid ${isSelected ? '#a78bfa' : isTaken ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.15)'}`,
-                          borderRadius: 14, padding: '10px 4px',
-                          cursor: isTaken ? 'not-allowed' : 'pointer',
-                          opacity: isTaken ? 0.32 : 1,
-                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                        }}
-                      >
-                        <div style={{ position: 'relative', width: 62, height: 62 }}>
-                          <img src={hero.img} alt={hero.name} style={{
-                            width: 62, height: 62, borderRadius: '50%', objectFit: 'cover',
-                            border: `2.5px solid ${isSelected ? '#a78bfa' : 'transparent'}`,
-                          }} />
-                          {isTaken && (
-                            <div style={{
-                              position: 'absolute', inset: 0, borderRadius: '50%',
-                              background: 'rgba(0,0,0,0.55)',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              fontSize: 11, color: '#f87171', fontWeight: 700,
-                            }}>已选</div>
-                          )}
-                          {isSelected && (
-                            <div style={{
-                              position: 'absolute', bottom: -2, right: -2,
-                              width: 18, height: 18, borderRadius: '50%',
-                              background: '#a78bfa', color: '#000',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              fontSize: 11, fontWeight: 900,
-                            }}>✓</div>
-                          )}
-                        </div>
-                        <span style={{ color: isSelected ? '#a78bfa' : '#e2e8f0', fontSize: 12, fontWeight: 600 }}>{hero.name}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          ))}
-
-          <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, textAlign: 'center', margin: '4px 0 0' }}>
-            未选择则随机分配 · 进入游戏后名字以房间昵称为准
-          </p>
-        </div>
-      </div>
     </div>
   );
 }
@@ -2001,33 +1847,6 @@ function TauntPicker({ tab, onTabChange, onSend, onClose }) {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// ── 胜者动画覆盖层（1s）──────────────────────────────────────
-function WinAnimation({ results }) {
-  const winners = (results || []).filter(r => r.delta > 0);
-  if (winners.length === 0) return null;
-  const text = winners.length === 1
-    ? `🏆 ${winners[0].nickname} 赢了！`
-    : `🏆 ${winners.map(w => w.nickname).join(' & ')} 平分！`;
-  return (
-    <div style={{
-      position: 'absolute', inset: 0, zIndex: 45,
-      background: 'rgba(0,0,0,0.78)',
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      animation: 'win-fade-in 0.25s ease forwards',
-    }}>
-      <div style={{
-        fontSize: 72, lineHeight: 1,
-        animation: 'crown-bounce 0.4s ease-in-out infinite alternate',
-      }}>👑</div>
-      <div style={{
-        color: '#f0d060', fontSize: 26, fontWeight: 800, marginTop: 14,
-        textShadow: '0 2px 24px rgba(240,208,96,0.9)',
-        textAlign: 'center', padding: '0 24px',
-      }}>{text}</div>
     </div>
   );
 }
