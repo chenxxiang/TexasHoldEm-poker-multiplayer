@@ -7,10 +7,179 @@ const THEME_OPTIONS = [
   { id: 'xianfeng', name: '仙风道骨', icon: '⛩️', desc: '仙侠江湖风格', accent: '#c4b5fd', previewBg: 'linear-gradient(135deg,#060a1e 0%,#0d1540 50%,#1a1a6e 100%)' },
 ];
 
+const TITLE_TYPE_STYLE = {
+  '尊号': { bg: '#7c3aed', color: '#fff' },
+  '仙号': { bg: '#db2877', color: '#fff' },
+  '道号': { bg: '#0d9488', color: '#fff' },
+};
+
+const HERO_SEASONS = [
+  {
+    season: 'S1',
+    heroes: [
+      { id: '保龙大帝',        name: '天龙',  img: '/heroes/保龙大帝.png',        title: '苍穹龙尊', titleType: '尊号', desc: '朝翔九霄，镇压四方，龙威震天地。' },
+      { id: '撸哥',           name: '卢震',  img: '/heroes/撸哥.png',            title: '雷渊震尊', titleType: '尊号', desc: '雷法通玄，震慑八荒，一声轰鸣动九渊。' },
+      { id: '陈少钧',          name: '陈少钧', img: '/heroes/陈少钧.png',          title: '玉衡天君', titleType: '尊号', desc: '少年持衡，权衡天地，执掌乾坤正道。' },
+      { id: '翔总',            name: '陈翔',  img: '/heroes/翔总.png',            title: '御风剑仙', titleType: '仙号', desc: '踏剑御风，凌空而翔，剑气贯日月。' },
+      { id: '思婷',            name: '思婷',  img: '/heroes/思婷.png',            title: '霜华仙子', titleType: '仙号', desc: '思若幽兰，姿若霜华，清冷绝尘世间。' },
+      { id: '标桑',            name: '阿标',  img: '/heroes/阿标.png',            title: '玄风游客', titleType: '道号', desc: '来去无踪，身似浮云，随风而游四海。' },
+      { id: '大胖',            name: '大胖',  img: '/heroes/大胖.png',            title: '圆满道君', titleType: '道号', desc: '体魄浑圆，功德圆满，福泽天下苍生。' },
+      { id: '韬少',            name: '文韬',  img: '/heroes/韬少.png',            title: '藏锋散人', titleType: '道号', desc: '韬光养晦，文蕴深藏，一朝出鞘惊天地。' },
+      { id: '大傻(美少女形态)', name: '大傻',  img: '/heroes/大傻(美少女形态).png', title: '混沌真人', titleType: '道号', desc: '大智若愚，混沌藏道，傻中自有乾坤。' },
+    ],
+  },
+  {
+    season: 'S2',
+    heroes: [
+      { id: '徐P',   name: '徐P',   img: '/heroes/徐P.png' },
+      { id: '牢丁',  name: '牢丁',  img: '/heroes/牢丁.png' },
+      { id: '？？',  name: '？？',  img: '/heroes/？？.png' },
+      { id: '？？？', name: '？？？', img: '/heroes/？？？.png' },
+    ],
+  },
+];
+
+const SEASON_COLORS = { S1: '#f0d060', S2: '#a78bfa' };
+
+function HeroPicker({ selectedHeroId, onSelect, onClose }) {
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(0,0,0,0.88)' }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          position: 'absolute', top: '50%', left: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: 'min(92vw, 420px)', maxHeight: '80vh',
+          background: '#111c30', borderRadius: 22,
+          border: '1px solid rgba(240,208,96,0.22)',
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 20px 12px', flexShrink: 0,
+          borderBottom: '1px solid rgba(255,255,255,0.07)',
+        }}>
+          <h3 style={{ color: '#f0d060', fontWeight: 700, fontSize: 18, margin: 0 }}>🦸 选择你的英雄</h3>
+          <button onClick={onClose} style={{ color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none', fontSize: 24, cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
+        </div>
+
+        {/* Scrollable list */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 16px' }}>
+          {HERO_SEASONS.map(({ season, heroes }) => (
+            <div key={season} style={{ marginBottom: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span style={{
+                  background: SEASON_COLORS[season], color: '#0a0f1a',
+                  fontWeight: 900, fontSize: 11, padding: '2px 10px', borderRadius: 8,
+                }}>{season}</span>
+                <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
+              </div>
+
+              {season === 'S1' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {heroes.map(hero => {
+                    const isSelected = hero.id === selectedHeroId;
+                    const ts = TITLE_TYPE_STYLE[hero.titleType] || { bg: '#374151', color: '#fff' };
+                    return (
+                      <button
+                        key={hero.id}
+                        onClick={() => onSelect(hero.id)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 14,
+                          background: isSelected ? 'rgba(240,208,96,0.12)' : 'rgba(255,255,255,0.04)',
+                          border: `1.5px solid ${isSelected ? '#f0d060' : 'rgba(255,255,255,0.1)'}`,
+                          borderRadius: 16, padding: '10px 14px',
+                          cursor: 'pointer', textAlign: 'left', width: '100%',
+                        }}
+                      >
+                        <div style={{ position: 'relative', flexShrink: 0 }}>
+                          <img src={hero.img} alt={hero.name} style={{
+                            width: 68, height: 68, borderRadius: '50%', objectFit: 'cover',
+                            border: `2.5px solid ${isSelected ? '#f0d060' : 'rgba(255,255,255,0.2)'}`,
+                          }} />
+                          {isSelected && (
+                            <div style={{
+                              position: 'absolute', bottom: 0, right: 0,
+                              width: 20, height: 20, borderRadius: '50%',
+                              background: '#f0d060', color: '#000',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 12, fontWeight: 900, border: '2px solid #111c30',
+                            }}>✓</div>
+                          )}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+                            <span style={{ color: isSelected ? '#f0d060' : '#fff', fontWeight: 700, fontSize: 15 }}>{hero.name}</span>
+                            {hero.title && <span style={{ color: 'rgba(255,255,255,0.55)', fontWeight: 800, fontSize: 14 }}>{hero.title}</span>}
+                            {hero.titleType && (
+                              <span style={{
+                                background: ts.bg, color: ts.color,
+                                fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, flexShrink: 0,
+                              }}>{hero.titleType}</span>
+                            )}
+                          </div>
+                          {hero.desc && (
+                            <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, lineHeight: 1.5 }}>{hero.desc}</div>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+                  {heroes.map(hero => {
+                    const isSelected = hero.id === selectedHeroId;
+                    return (
+                      <button
+                        key={hero.id}
+                        onClick={() => onSelect(hero.id)}
+                        style={{
+                          background: isSelected ? 'rgba(167,139,250,0.18)' : 'rgba(255,255,255,0.06)',
+                          border: `2px solid ${isSelected ? '#a78bfa' : 'rgba(255,255,255,0.15)'}`,
+                          borderRadius: 14, padding: '10px 4px', cursor: 'pointer',
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                        }}
+                      >
+                        <div style={{ position: 'relative', width: 62, height: 62 }}>
+                          <img src={hero.img} alt={hero.name} style={{
+                            width: 62, height: 62, borderRadius: '50%', objectFit: 'cover',
+                            border: `2.5px solid ${isSelected ? '#a78bfa' : 'transparent'}`,
+                          }} />
+                          {isSelected && (
+                            <div style={{
+                              position: 'absolute', bottom: -2, right: -2,
+                              width: 18, height: 18, borderRadius: '50%',
+                              background: '#a78bfa', color: '#000',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 11, fontWeight: 900,
+                            }}>✓</div>
+                          )}
+                        </div>
+                        <span style={{ color: isSelected ? '#a78bfa' : '#e2e8f0', fontSize: 12, fontWeight: 600 }}>{hero.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState('join');
-  const [nickname, setNickname] = useState('');
+  const [selectedHeroId, setSelectedHeroId] = useState(() => localStorage.getItem('poker_hero') || '');
+  const [showHeroPicker, setShowHeroPicker] = useState(false);
   const [roomCode, setRoomCode] = useState('');
   const [initialChips, setInitialChips] = useState(1000);
   const [smallBlind, setSmallBlind] = useState(10);
@@ -19,6 +188,8 @@ export default function HomePage() {
   const [theme, setTheme] = useState('macau');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const selectedHero = HERO_SEASONS.flatMap(s => s.heroes).find(h => h.id === selectedHeroId) || null;
 
   useEffect(() => {
     const onRoomCreated = ({ roomId, room }) => {
@@ -47,28 +218,36 @@ export default function HomePage() {
     };
   }, [navigate]);
 
+  const handleSelectHero = (heroId) => {
+    setSelectedHeroId(heroId);
+    localStorage.setItem('poker_hero', heroId);
+    setShowHeroPicker(false);
+  };
+
   const handleCreate = () => {
-    if (!nickname.trim()) { setError('请输入昵称'); return; }
+    const nickname = selectedHero?.name || '';
+    if (!nickname) { setError('请先选择一位英雄'); return; }
     if (initialChips < 100) { setError('初始筹码至少100'); return; }
     if (smallBlind < 1) { setError('小盲注至少1'); return; }
     setError('');
     setLoading(true);
-    localStorage.setItem('poker_nickname', nickname.trim());
+    localStorage.setItem('poker_nickname', nickname);
     socket.emit('createRoom', {
-      nickname: nickname.trim(),
+      nickname,
       settings: { initialChips, smallBlind, maxRebuyAmount: maxRebuy, actionTime, theme },
     });
   };
 
   const handleJoin = () => {
-    if (!nickname.trim()) { setError('请输入昵称'); return; }
+    const nickname = selectedHero?.name || '';
+    if (!nickname) { setError('请先选择一位英雄'); return; }
     if (!roomCode.trim()) { setError('请输入房间号'); return; }
     setError('');
     setLoading(true);
-    localStorage.setItem('poker_nickname', nickname.trim());
+    localStorage.setItem('poker_nickname', nickname);
     socket.emit('joinRoom', {
       roomId: roomCode.trim().toUpperCase(),
-      nickname: nickname.trim(),
+      nickname,
     });
   };
 
@@ -100,14 +279,34 @@ export default function HomePage() {
         </div>
 
         <div className="space-y-4">
-          <input
-            className={inputCls}
-            placeholder="你的昵称"
-            value={nickname}
-            maxLength={16}
-            onChange={e => setNickname(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && (tab === 'join' ? handleJoin() : handleCreate())}
-          />
+          {/* Hero select button */}
+          <button
+            onClick={() => setShowHeroPicker(true)}
+            style={{
+              width: '100%', padding: '10px 16px', borderRadius: 14, cursor: 'pointer',
+              background: selectedHero ? 'rgba(240,208,96,0.1)' : 'rgba(59,130,246,0.14)',
+              border: `1.5px solid ${selectedHero ? 'rgba(240,208,96,0.45)' : 'rgba(59,130,246,0.4)'}`,
+              color: selectedHero ? '#f0d060' : '#93c5fd',
+              fontWeight: 700, fontSize: 14,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+            }}
+          >
+            {selectedHero ? (
+              <>
+                <img src={selectedHero.img} style={{ width: 26, height: 26, borderRadius: '50%', objectFit: 'cover' }} alt="" />
+                <span>{selectedHero.name}</span>
+                {selectedHero.title && selectedHero.titleType && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 700,
+                    background: TITLE_TYPE_STYLE[selectedHero.titleType]?.bg,
+                    color: TITLE_TYPE_STYLE[selectedHero.titleType]?.color,
+                    borderRadius: 5, padding: '1px 6px',
+                  }}>{selectedHero.title}</span>
+                )}
+                <span style={{ fontSize: 12, opacity: 0.6, fontWeight: 400 }}>· 更换英雄</span>
+              </>
+            ) : '🦸 选择你的英雄'}
+          </button>
 
           {tab === 'join' ? (
             <>
@@ -209,6 +408,14 @@ export default function HomePage() {
           )}
         </div>
       </div>
+
+      {showHeroPicker && (
+        <HeroPicker
+          selectedHeroId={selectedHeroId}
+          onSelect={handleSelectHero}
+          onClose={() => setShowHeroPicker(false)}
+        />
+      )}
     </div>
   );
 }

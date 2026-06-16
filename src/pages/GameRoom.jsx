@@ -266,6 +266,18 @@ export default function GameRoom() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me?.nickname]);
 
+  // Auto-select hero from localStorage when room first loads
+  const hasAutoSelectedHero = useRef(false);
+  useEffect(() => {
+    if (!room || hasAutoSelectedHero.current) return;
+    const storedHeroId = localStorage.getItem('poker_hero');
+    if (storedHeroId) {
+      hasAutoSelectedHero.current = true;
+      socket.emit('selectHero', { roomId, heroId: storedHeroId });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room]);
+
   useEffect(() => {
     const onConnect = () => {
       setMySocketId(socket.id);
@@ -936,6 +948,15 @@ export default function GameRoom() {
             60%  { transform:translateX(-50%) scale(1.12); }
             to   { opacity:1; transform:translateX(-50%) scale(1); }
           }
+          @keyframes winner-pop {
+            from { opacity:0; transform:scale(0.4); }
+            65%  { transform:scale(1.08); }
+            to   { opacity:1; transform:scale(1); }
+          }
+          @keyframes crown-float {
+            0%,100% { transform:translateX(-50%) translateY(0px); }
+            50%     { transform:translateX(-50%) translateY(-5px); }
+          }
           @keyframes taunt-fade {
             0%   { opacity:1; }
             70%  { opacity:1; }
@@ -985,6 +1006,8 @@ export default function GameRoom() {
           .xf-raise { animation: xf-glow-raise 2.2s ease-in-out infinite; }
           .xf-raise-confirm { animation: xf-glow-raise-confirm 1s ease-in-out infinite; }
         `}</style>
+
+        {isSettlementPhase && <WinnerPopup settlementData={settlementData} />}
 
         {showTauntPicker && (
           <TauntPicker
@@ -1169,6 +1192,15 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
               background: posLabel === 'D' ? '#fff' : posLabel === 'SB' ? '#93c5fd' : posLabel === 'BB' ? '#fbbf24' : '#d1d5db',
             }}>{posLabel}</span>
           )}
+          {isSettlementWinner && settlementResult && (
+            <div style={{
+              position: 'absolute', bottom: sz + 2, left: '50%',
+              transform: 'translateX(-50%)',
+              fontSize: isMe ? 22 : 18, lineHeight: 1, pointerEvents: 'none', zIndex: 3,
+              filter: 'drop-shadow(0 2px 6px rgba(255,215,0,0.9))',
+              animation: 'crown-float 1.8s ease-in-out infinite',
+            }}>👑</div>
+          )}
         </div>
 
         {/* Name / chip info */}
@@ -1179,6 +1211,15 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
             textShadow: '0 1px 4px rgba(0,0,0,0.95)',
           }}>{player.nickname}</div>
+          {hero.title && hero.titleType && !isFolded && (
+            <div style={{
+              display: 'inline-block', fontSize: 8, fontWeight: 700,
+              background: TITLE_TYPE_STYLE[hero.titleType]?.bg || '#555',
+              color: TITLE_TYPE_STYLE[hero.titleType]?.color || '#fff',
+              borderRadius: 4, padding: '1px 5px', marginTop: 1,
+              whiteSpace: 'nowrap', textShadow: 'none',
+            }}>{hero.title}</div>
+          )}
           <div style={{ fontSize: isMe ? 11 : 10, color: '#f0d060', fontWeight: 700, textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}>
             {player.chips}
           </div>
@@ -2054,6 +2095,61 @@ function HeroPicker({ players, mySocketId, myHeroId, onSelect, onClose, theme })
             未选择则随机分配 · 进入游戏后名字以房间昵称为准
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 获胜弹窗 ───────────────────────────────────────────────────
+function WinnerPopup({ settlementData }) {
+  const [visible, setVisible] = useState(false);
+  const prevKeyRef = useRef(null);
+
+  useEffect(() => {
+    if (!settlementData) { setVisible(false); prevKeyRef.current = null; return; }
+    const key = settlementData.results?.map(r => r.socketId).join(',') || '';
+    if (key === prevKeyRef.current) return;
+    prevKeyRef.current = key;
+    setVisible(true);
+    const t = setTimeout(() => setVisible(false), 3600);
+    return () => clearTimeout(t);
+  }, [settlementData]);
+
+  if (!visible) return null;
+  const winners = settlementData?.results?.filter(r => r.delta > 0) || [];
+  if (winners.length === 0) return null;
+
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, zIndex: 55,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      pointerEvents: 'none',
+      background: 'rgba(0,0,0,0.28)',
+    }}>
+      <div style={{
+        background: 'rgba(4,8,20,0.96)',
+        border: '2px solid rgba(240,208,96,0.6)',
+        borderRadius: 24, padding: '26px 44px',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+        animation: 'winner-pop 0.45s cubic-bezier(0.34,1.56,0.64,1) forwards',
+        boxShadow: '0 0 80px rgba(240,208,96,0.22), 0 8px 40px rgba(0,0,0,0.85)',
+      }}>
+        <div style={{ fontSize: 52, lineHeight: 1 }}>🏆</div>
+        {winners.map(w => (
+          <div key={w.socketId} style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 26, fontWeight: 900, color: '#f0d060', textShadow: '0 0 20px rgba(240,208,96,0.55)' }}>
+              {w.nickname}
+            </div>
+            <div style={{ fontSize: 34, fontWeight: 900, color: '#4ade80', textShadow: '0 0 16px rgba(74,222,128,0.65)', marginTop: 4 }}>
+              +{w.delta}
+            </div>
+            {w.handName && (
+              <div style={{ fontSize: 14, color: 'rgba(240,208,96,0.75)', marginTop: 6, fontWeight: 600 }}>
+                {HAND_NAME_MAP[w.handName] || w.handName}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
