@@ -4,8 +4,6 @@ import { socket } from '../context/SocketContext';
 import Card from '../components/Card';
 import { playActionSound } from '../helpers/sounds';
 import { Hand } from 'pokersolver';
-import { HEROES, TITLE_TYPE_STYLE } from '../data/heroes';
-import WinAnimation from '../components/WinAnimation';
 
 // ── Speech synthesis: pre-load voices for mobile (Huawei/Android) ──
 let _cachedVoice = null;
@@ -74,6 +72,39 @@ const PHASE_LABELS = {
 };
 const AVATARS = ['🐯','🦁','🐻','🐼','🐨','🦊','🐺','🐸','🐮','🐷'];
 
+const TITLE_TYPE_STYLE = {
+  '尊号': { bg: '#7c3aed', color: '#fff' },
+  '仙号': { bg: '#db2777', color: '#fff' },
+  '道号': { bg: '#0d9488', color: '#fff' },
+};
+
+const HERO_SEASONS = [
+  {
+    season: 'S1',
+    heroes: [
+      { id: '保龙大帝',        name: '天龙',  img: '/heroes/保龙大帝.png',        title: '苍穹龙尊', titleType: '尊号', desc: '朝翔九霄，镇压四方，龙威震天地。' },
+      { id: '撸哥',           name: '卢震',  img: '/heroes/撸哥.png',            title: '雷渊震尊', titleType: '尊号', desc: '雷法通玄，震慑八荒，一声轰鸣动九渊。' },
+      { id: '陈少钧',          name: '陈少钧', img: '/heroes/陈少钧.png',          title: '玉衡天君', titleType: '尊号', desc: '少年持衡，权衡天地，执掌乾坤正道。' },
+      { id: '翔总',            name: '陈翔',  img: '/heroes/翔总.png',            title: '御风剑仙', titleType: '仙号', desc: '踏剑御风，凌空而翔，剑气贯日月。' },
+      { id: '思婷',            name: '思婷',  img: '/heroes/思婷.png',            title: '霜华仙子', titleType: '仙号', desc: '思若幽兰，姿若霜华，清冷绝尘世间。' },
+      { id: '标桑',            name: '阿标',  img: '/heroes/阿标.png',            title: '玄风游客', titleType: '道号', desc: '来去无踪，身似浮云，随风而游四海。' },
+      { id: '大胖',            name: '大胖',  img: '/heroes/大胖.png',            title: '圆满道君', titleType: '道号', desc: '体魄浑圆，功德圆满，福泽天下苍生。' },
+      { id: '韬少',            name: '文韬',  img: '/heroes/韬少.png',            title: '藏锋散人', titleType: '道号', desc: '韬光养晦，文蕴深藏，一朝出鞘惊天地。' },
+      { id: '大傻(美少女形态)', name: '大傻',  img: '/heroes/大傻(美少女形态).png', title: '混沌真人', titleType: '道号', desc: '大智若愚，混沌藏道，傻中自有乾坤。' },
+    ],
+  },
+  {
+    season: 'S2',
+    heroes: [
+      { id: '徐P',   name: '徐P',   img: '/heroes/徐P.png' },
+      { id: '牢丁',  name: '牢丁',  img: '/heroes/牢丁.png' },
+      { id: '？？',  name: '？？',  img: '/heroes/？？.png' },
+      { id: '？？？', name: '？？？', img: '/heroes/？？？.png' },
+    ],
+  },
+];
+
+const HEROES = HERO_SEASONS.flatMap(s => s.heroes);
 
 const THEMES = {
   macau: {
@@ -85,7 +116,7 @@ const THEMES = {
   xianfeng: {
     id: 'xianfeng',
     name: '仙风道骨',
-    bg: '/天宫2.png',
+    bg: '/天宫.jpg',
     bgStyle: { top: '-18%', height: '118%' },
     text: {
       fold: '认负', call: '接招', check: '静观', raise: '出招', confirm: '出手',
@@ -200,10 +231,6 @@ export default function GameRoom() {
   const [handHistory, setHandHistory] = useState([]);
   const [rebuyError, setRebuyError] = useState('');
   const [settlementData, setSettlementData] = useState(null);
-  const [winAnimating, setWinAnimating] = useState(false);
-  const [showWinAnim, setShowWinAnim] = useState(false);
-  const [winAnimHero, setWinAnimHero] = useState(null);
-  const [pendingSettlement, setPendingSettlement] = useState(null);
   const [settlementDeadline, setSettlementDeadline] = useState(null);
   const [settlementCountdown, setSettlementCountdown] = useState(0);
   const [cardReveals, setCardReveals] = useState({});
@@ -335,30 +362,10 @@ export default function GameRoom() {
     const onHandHistory = ({ history }) => setHandHistory(history || []);
     const onShowdown = ({ room: r, results, wasMuckWin, settlementDeadline: deadline, potBreakdown, isReconnect, actionLog }) => {
       setRoom(r);
+      setSettlementData({ results: results || [], wasMuckWin, actionLog: actionLog || [], potBreakdown: potBreakdown || [] });
+      setSettlementDeadline(deadline);
       setCardReveals({});
       setMessage('');
-      const payload = { results: results || [], wasMuckWin, actionLog: actionLog || [], potBreakdown: potBreakdown || [] };
-      if (!isReconnect && results?.length) {
-        const winners = results.filter(rs => rs.delta > 0);
-        if (winners.length === 1) {
-          const wp = r.players?.find(p => p.nickname === winners[0].nickname);
-          if (wp?.heroId) {
-            const hero = HEROES.find(h => h.id === wp.heroId);
-            if (hero?.title) {
-              setPendingSettlement({ data: payload, deadline });
-              setWinAnimHero(hero);
-              setShowWinAnim(true);
-              return;
-            }
-          }
-        }
-      }
-      setSettlementData(payload);
-      setSettlementDeadline(deadline);
-      if (!isReconnect) {
-        setWinAnimating(true);
-        setTimeout(() => setWinAnimating(false), 1000);
-      }
     };
     const onJoinedRoom = ({ room: r }) => {
       // Reconnect path: server will follow up with showdown event if in settlement
@@ -518,6 +525,7 @@ export default function GameRoom() {
   const showActionButtons = isMyTurn && me && !me.folded && me.chips > 0 && room.phase !== 'showdown' && room.phase !== 'waiting';
   const showRebuyButton = me && room.phase !== 'waiting' && (me.folded || me.chips === 0);
   const hasMyCards = (me?.holeCards?.length ?? 0) > 0;
+  const isSettlementPhase = room.phase === 'settlement' || !!settlementData;
 
   const themeConfig = THEMES[room?.settings?.theme] || THEMES.macau;
   const tx = (key, def) => themeConfig.text[key] ?? def;
@@ -634,10 +642,12 @@ export default function GameRoom() {
               actionBadges={actionBadges}
               raisePopups={raisePopups}
               theme={themeConfig}
+              settlementData={isSettlementPhase ? settlementData : null}
+              cardReveals={cardReveals}
             />
 
             {/* My hole cards */}
-            {hasMyCards && (
+            {hasMyCards && !isSettlementPhase && (
               <div style={{
                 position: 'absolute', bottom: 90, left: '50%', transform: 'translateX(-50%)',
                 zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
@@ -768,7 +778,19 @@ export default function GameRoom() {
           borderTop: '1px solid rgba(255,255,255,0.07)',
           display: 'flex', alignItems: 'center', padding: '0 12px', gap: 10,
         }}>
-          {showActionButtons ? (
+          {isSettlementPhase ? (
+            <SettlementControls
+              settlementData={settlementData}
+              room={room}
+              mySocketId={mySocketId}
+              settlementCountdown={settlementCountdown}
+              cardReveals={cardReveals}
+              onRevealCards={sendRevealCards}
+              onReady={sendReadyForNextHand}
+              onSpectate={sendSpectateNextHand}
+              onJoinNextHand={sendQueueNextHand}
+            />
+          ) : showActionButtons ? (
             <>
               <button
                 className={`action-btn${isXianfeng ? ' xf-fold' : ''}`}
@@ -927,14 +949,6 @@ export default function GameRoom() {
             box-shadow: 0 1px 4px rgba(0,0,0,0.5) !important;
             filter: brightness(0.70) saturate(1.3) !important;
           }
-          @keyframes win-fade-in {
-            from { opacity:0; transform:scale(0.85); }
-            to   { opacity:1; transform:scale(1); }
-          }
-          @keyframes crown-bounce {
-            from { transform:translateY(0) scale(1); }
-            to   { transform:translateY(-10px) scale(1.12); }
-          }
           @keyframes raise-float-up {
             0%   { opacity:0; transform:translateX(-50%) translateY(4px) scale(0.5); }
             18%  { opacity:1; transform:translateX(-50%) translateY(-12px) scale(1.25); }
@@ -970,27 +984,6 @@ export default function GameRoom() {
           .xf-call  { animation: xf-glow-call  2s   ease-in-out infinite; }
           .xf-raise { animation: xf-glow-raise 2.2s ease-in-out infinite; }
           .xf-raise-confirm { animation: xf-glow-raise-confirm 1s ease-in-out infinite; }
-
-          /* ── 炫彩名牌动画 ── */
-          .title-badge { background-size: 200% auto; }
-          @keyframes tbz-shine { 0%{background-position:0% center} 100%{background-position:200% center} }
-          @keyframes tbz-pulse {
-            0%,100% { box-shadow: 0 0 5px rgba(167,85,247,0.55), 0 0 2px rgba(240,208,96,0.3); }
-            50%     { box-shadow: 0 0 14px rgba(167,85,247,1),   0 0 7px rgba(240,208,96,0.75); }
-          }
-          @keyframes tbx-shine { 0%{background-position:0% center} 100%{background-position:200% center} }
-          @keyframes tbx-pulse {
-            0%,100% { box-shadow: 0 0 5px rgba(244,114,182,0.55); }
-            50%     { box-shadow: 0 0 14px rgba(244,114,182,1); }
-          }
-          @keyframes tbd-shine { 0%{background-position:0% center} 100%{background-position:200% center} }
-          @keyframes tbd-pulse {
-            0%,100% { box-shadow: 0 0 5px rgba(45,212,191,0.55); }
-            50%     { box-shadow: 0 0 13px rgba(45,212,191,1); }
-          }
-          .tbz { background: linear-gradient(90deg,#5b21b6,#a855f7,#f0d060,#a855f7,#5b21b6); animation: tbz-shine 2.5s linear infinite, tbz-pulse 2s ease-in-out infinite; }
-          .tbx { background: linear-gradient(90deg,#9d174d,#ec4899,#fce7f3,#ec4899,#9d174d); animation: tbx-shine 3.5s linear infinite, tbx-pulse 3s ease-in-out infinite; }
-          .tbd { background: linear-gradient(90deg,#065f46,#10b981,#a7f3d0,#10b981,#065f46); animation: tbd-shine 4s linear infinite, tbd-pulse 3.5s ease-in-out infinite; }
         `}</style>
 
         {showTauntPicker && (
@@ -1014,38 +1007,6 @@ export default function GameRoom() {
           <HandHistoryPanel history={handHistory} onClose={() => setShowHistory(false)} />
         )}
 
-        {showWinAnim && winAnimHero && (
-          <WinAnimation
-            hero={winAnimHero}
-            onDone={() => {
-              setShowWinAnim(false);
-              setWinAnimHero(null);
-              if (pendingSettlement) {
-                setSettlementData(pendingSettlement.data);
-                setSettlementDeadline(pendingSettlement.deadline);
-                setWinAnimating(true);
-                setTimeout(() => setWinAnimating(false), 1000);
-                setPendingSettlement(null);
-              }
-            }}
-          />
-        )}
-
-        {(room.phase === 'settlement' || settlementData) && !winAnimating && !showWinAnim && (
-          <SettlementScreen
-            settlementData={settlementData}
-            room={room}
-            mySocketId={mySocketId}
-            settlementCountdown={settlementCountdown}
-            cardReveals={cardReveals}
-            onRevealCards={sendRevealCards}
-            onReady={sendReadyForNextHand}
-            onSpectate={sendSpectateNextHand}
-            onJoinNextHand={sendQueueNextHand}
-            theme={themeConfig}
-            phaseLabelMap={phaseLabelMap}
-          />
-        )}
       </div>
     </div>
   );
@@ -1066,7 +1027,7 @@ const presetBtn = {
 };
 
 // ── Poker table: only player avatars, no CSS oval ──────────────
-function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtendTime, tauntBubbles, onMyAvatarClick, actionBadges, raisePopups, theme }) {
+function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtendTime, tauntBubbles, onMyAvatarClick, actionBadges, raisePopups, theme, settlementData, cardReveals }) {
   const n = room.players.length;
   const myIdx = room.players.findIndex(p => p.socketId === mySocketId);
   const orderedPlayers = myIdx >= 0
@@ -1081,6 +1042,7 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
         const origIdx = myIdx >= 0 ? (myIdx + seatPos) % n : seatPos;
         const isThisPlayersTurn = room.currentTurnIndex === origIdx;
         const isMe = player.socketId === mySocketId;
+        const settlementResult = settlementData?.results?.find(r => r.socketId === player.socketId) || null;
         return (
           <AvatarTimer
             key={player.socketId}
@@ -1103,6 +1065,8 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
             actionBadge={actionBadges?.[player.socketId]}
             raisePopup={raisePopups?.[player.socketId]}
             theme={theme}
+            settlementResult={settlementResult}
+            revealedCards={cardReveals?.[player.socketId] || settlementResult?.holeCards || []}
           />
         );
       })}
@@ -1111,31 +1075,7 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
 }
 
 // ── Avatar with timer ring ─────────────────────────────────────
-// ── 炫彩称号名牌 ─────────────────────────────────────────────
-function TitleBadge({ hero, isMe }) {
-  if (!hero?.title || !hero?.titleType) return null;
-  const cfgs = { '尊号': 'tbz', '仙号': 'tbx', '道号': 'tbd' };
-  const cls = cfgs[hero.titleType] || 'tbz';
-  return (
-    <div
-      className={`title-badge ${cls}`}
-      style={{
-        padding: isMe ? '2px 8px' : '1px 5px',
-        fontSize: isMe ? 9.5 : 8,
-        maxWidth: isMe ? 100 : 84,
-        borderRadius: 6, fontWeight: 800,
-        letterSpacing: '0.05em', color: '#fff',
-        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-        textShadow: '0 1px 3px rgba(0,0,0,0.9)',
-        border: '0.5px solid rgba(255,255,255,0.25)',
-      }}
-    >
-      {hero.titleType}·{hero.title}
-    </div>
-  );
-}
-
-function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime, bubble, onAvatarClick, actionBadge, raisePopup, theme }) {
+function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime, bubble, onAvatarClick, actionBadge, raisePopup, theme, settlementResult, revealedCards }) {
   const CIRCUMFERENCE = 2 * Math.PI * 20;
   const duration = timerInfo?.duration || 20;
   const dashOffset = CIRCUMFERENCE * (1 - (isCurrentTurn && countdown > 0 ? countdown / duration : 0));
@@ -1159,6 +1099,11 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
 
   const baseScale = isCurrentTurn ? 1.18 : 1;
   const effectiveScale = avatarScale > 1 ? avatarScale : baseScale;
+  const settlementCardsVisible = !!settlementResult
+    && revealedCards?.length > 0
+    && revealedCards.every(c => c !== 'hidden');
+  const settlementDelta = settlementResult?.delta ?? 0;
+  const isSettlementWinner = settlementDelta > 0;
 
   return (
     <div style={posStyle}>
@@ -1226,9 +1171,6 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
           )}
         </div>
 
-        {/* Title badge — shown when player has a hero with a title */}
-        {player.heroId && <TitleBadge hero={hero} isMe={isMe} />}
-
         {/* Name / chip info */}
         <div style={{ textAlign: 'center', maxWidth: isMe ? 84 : 72 }}>
           <div style={{
@@ -1247,6 +1189,46 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
           {player.status === 'spectating' && <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.38)' }}>👁</div>}
           {player.disconnected && player.status !== 'spectating' && <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.38)' }}>断线</div>}
         </div>
+
+        {settlementResult && (
+          <div style={{
+            marginTop: 3,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 3,
+            pointerEvents: 'none',
+          }}>
+            <div style={{
+              color: isSettlementWinner ? '#4ade80' : settlementDelta < 0 ? '#f87171' : 'rgba(255,255,255,0.68)',
+              fontSize: isMe ? 16 : 14,
+              fontWeight: 900,
+              textShadow: '0 2px 8px rgba(0,0,0,0.95)',
+            }}>
+              {settlementDelta > 0 ? `+${settlementDelta}` : settlementDelta}
+            </div>
+            {settlementCardsVisible && (
+              <>
+                <div style={{ display: 'flex', gap: 3 }}>
+                  {revealedCards.map((card, i) => (
+                    <Card key={i} card={card} size={isMe ? 'md' : 'sm'} />
+                  ))}
+                </div>
+                {settlementResult.handName && (
+                  <div style={{
+                    color: '#f0d060',
+                    fontSize: isMe ? 13 : 12,
+                    fontWeight: 800,
+                    whiteSpace: 'nowrap',
+                    textShadow: '0 2px 8px rgba(0,0,0,0.95)',
+                  }}>
+                    {HAND_NAME_MAP[settlementResult.handName] || settlementResult.handName}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {isMe && isMyTurn && isCurrentTurn && timerInfo?.hasTimeBank && countdown > 0 && (
           <button onClick={onExtendTime} style={{
@@ -1395,12 +1377,159 @@ function Scoreboard({ room, mySocketId, onClose, theme }) {
 }
 
 // ── Settlement overlay ─────────────────────────────────────────
-const SETTLEMENT_DURATION = 10;
+const SETTLEMENT_DURATION = 30;
 
 const READY_STATUS_ICON = { ready: '✅', queued: '🪑', spectating: '👁', pending: '⏳' };
 
 const ACTION_LOG_LABELS = { fold: '弃牌', call: '跟注', check: '过牌', raise: '加注', allin: '全下' };
 const PHASE_ORDER = ['preflop', 'flop', 'turn', 'river'];
+
+function SettlementControls({
+  settlementData, room, mySocketId, settlementCountdown,
+  cardReveals, onRevealCards, onReady, onSpectate, onJoinNextHand,
+}) {
+  const me = room?.players?.find(p => p.socketId === mySocketId);
+  const myReadyStatus = me?.readyStatus || 'pending';
+  const myHoleCards = me?.holeCards ?? [];
+  const hasRevealed = !!cardReveals[mySocketId];
+  const canReveal = myHoleCards.length > 0 && !hasRevealed;
+  const winners = settlementData?.results?.filter(r => r.delta > 0) || [];
+  const winnerText = winners.length > 0
+    ? winners.map(w => `${w.nickname} +${w.delta}`).join(' / ')
+    : '等待结算';
+
+  const btnBase = {
+    flex: '1 1 0',
+    minWidth: 0,
+    height: 46,
+    borderRadius: 12,
+    cursor: 'pointer',
+    fontWeight: 800,
+    fontSize: 14,
+  };
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 7 }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+        minHeight: 16,
+      }}>
+        <div style={{
+          color: '#f0d060',
+          fontSize: 12,
+          fontWeight: 800,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}>
+          本局结算 · {winnerText}
+        </div>
+        {settlementCountdown > 0 && (
+          <div style={{ color: 'rgba(255,255,255,0.62)', fontSize: 12, flexShrink: 0 }}>
+            {settlementCountdown}s
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        {canReveal && (
+          <button
+            onClick={onRevealCards}
+            style={{
+              ...btnBase,
+              border: '1px solid rgba(240,208,96,0.42)',
+              background: 'rgba(240,208,96,0.13)',
+              color: '#f0d060',
+            }}
+          >秀牌</button>
+        )}
+        {myHoleCards.length > 0 && hasRevealed && (
+          <div style={{
+            ...btnBase,
+            cursor: 'default',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: '1px solid rgba(240,208,96,0.18)',
+            background: 'rgba(240,208,96,0.06)',
+            color: 'rgba(240,208,96,0.75)',
+          }}>已秀牌</div>
+        )}
+        {myReadyStatus === 'pending' && (
+          <>
+            <button
+              onClick={onReady}
+              style={{
+                ...btnBase,
+                border: 'none',
+                background: 'linear-gradient(135deg,#14532d,#166534)',
+                color: '#fff',
+              }}
+            >准备</button>
+            <button
+              onClick={onSpectate}
+              style={{
+                ...btnBase,
+                border: '1px solid rgba(255,255,255,0.2)',
+                background: 'rgba(255,255,255,0.08)',
+                color: 'rgba(255,255,255,0.82)',
+              }}
+            >观战</button>
+          </>
+        )}
+        {myReadyStatus === 'ready' && (
+          <div style={{
+            ...btnBase,
+            cursor: 'default',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: '1px solid rgba(34,197,94,0.3)',
+            background: 'rgba(34,197,94,0.12)',
+            color: '#4ade80',
+          }}>已准备</div>
+        )}
+        {myReadyStatus === 'spectating' && (
+          <button
+            onClick={onJoinNextHand}
+            style={{
+              ...btnBase,
+              border: '1px solid rgba(240,208,96,0.35)',
+              background: 'rgba(240,208,96,0.14)',
+              color: '#f0d060',
+            }}
+          >下局参与</button>
+        )}
+        {myReadyStatus === 'queued' && (
+          <div style={{
+            ...btnBase,
+            cursor: 'default',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: '1px solid rgba(240,208,96,0.25)',
+            background: 'rgba(240,208,96,0.1)',
+            color: '#fbbf24',
+          }}>下局将参与</div>
+        )}
+      </div>
+
+      {settlementCountdown > 0 && (
+        <div style={{ height: 3, borderRadius: 4, overflow: 'hidden', background: 'rgba(255,255,255,0.12)' }}>
+          <div style={{
+            height: '100%',
+            width: `${(settlementCountdown / SETTLEMENT_DURATION) * 100}%`,
+            background: '#f0d060',
+            transition: 'width 1s linear',
+          }} />
+        </div>
+      )}
+    </div>
+  );
+}
 
 function formatLogEntry(entry) {
   const label = ACTION_LOG_LABELS[entry.action] || entry.action;
@@ -1420,18 +1549,21 @@ function SettlementScreen({
   const myReadyStatus = me?.readyStatus || 'pending';
   const hasRevealed = !!cardReveals[mySocketId];
   const myHoleCards = me?.holeCards ?? [];
+  const canReveal = myHoleCards.length > 0 && !hasRevealed;
 
   return (
     <div style={{
-      position: 'absolute', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.82)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: '52px 14px 14px',
+      position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 40,
+      display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+      padding: '0 12px 12px', pointerEvents: 'none',
     }}>
       <div style={{
-        background: '#1a2f4a', borderRadius: 20, padding: 16,
+        background: 'rgba(18,30,48,0.96)', borderRadius: 14, padding: 14,
         border: '1px solid rgba(240,208,96,0.28)', width: '100%',
-        maxHeight: '100%', overflow: 'auto',
+        maxWidth: 560, maxHeight: '62vh', overflow: 'auto',
         display: 'flex', flexDirection: 'column', gap: 10,
+        boxShadow: '0 12px 36px rgba(0,0,0,0.45)',
+        pointerEvents: 'auto',
       }}>
 
         {/* Title + live countdown */}
@@ -1525,66 +1657,67 @@ function SettlementScreen({
           </div>
         )}
 
-        {/* 亮牌 button: only show if I have cards and haven't revealed yet */}
-        {myHoleCards.length > 0 && !hasRevealed && (
-          <button
-            onClick={onRevealCards}
-            style={{
-              width: '100%', padding: '9px 0', borderRadius: 13,
-              border: '1px solid rgba(240,208,96,0.35)', background: 'none',
-              color: '#f0d060', fontWeight: 600, fontSize: 14, cursor: 'pointer',
-            }}
-          >亮牌 🂠</button>
-        )}
-        {myHoleCards.length > 0 && hasRevealed && (
-          <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.32)', fontSize: 12 }}>已亮牌</div>
-        )}
-
-        {/* Action buttons based on myReadyStatus */}
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {canReveal && (
+            <button
+              onClick={onRevealCards}
+              style={{
+                flex: '1 1 110px', padding: '10px 0', borderRadius: 12,
+                border: '1px solid rgba(240,208,96,0.35)', background: 'rgba(240,208,96,0.08)',
+                color: '#f0d060', fontWeight: 700, fontSize: 14, cursor: 'pointer',
+              }}
+            >秀牌</button>
+          )}
+          {myHoleCards.length > 0 && hasRevealed && (
+            <div style={{
+              flex: '1 1 110px', padding: '10px 0', borderRadius: 12, textAlign: 'center',
+              background: 'rgba(240,208,96,0.06)', border: '1px solid rgba(240,208,96,0.18)',
+              color: 'rgba(240,208,96,0.72)', fontWeight: 600, fontSize: 14,
+            }}>已秀牌</div>
+          )}
           {myReadyStatus === 'pending' && (
             <>
               <button
                 onClick={onReady}
                 style={{
-                  flex: 1, padding: '12px 0', borderRadius: 14, border: 'none', cursor: 'pointer',
+                  flex: '1 1 110px', padding: '10px 0', borderRadius: 12, border: 'none', cursor: 'pointer',
                   background: 'linear-gradient(135deg,#14532d,#166534)', color: '#fff',
-                  fontWeight: 700, fontSize: 15,
+                  fontWeight: 700, fontSize: 14,
                 }}
-              >✅ {tx('readyNext', '准备下一局')}</button>
+              >准备</button>
               <button
                 onClick={onSpectate}
                 style={{
-                  flex: 1, padding: '12px 0', borderRadius: 14, cursor: 'pointer',
+                  flex: '1 1 110px', padding: '10px 0', borderRadius: 12, cursor: 'pointer',
                   background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.2)',
-                  color: 'rgba(255,255,255,0.7)', fontWeight: 600, fontSize: 15,
+                  color: 'rgba(255,255,255,0.74)', fontWeight: 600, fontSize: 14,
                 }}
-              >👁 {tx('spectateNext', '本局观战')}</button>
+              >观战</button>
             </>
           )}
           {myReadyStatus === 'ready' && (
             <div style={{
-              flex: 1, padding: '12px 0', borderRadius: 14, textAlign: 'center',
+              flex: '1 1 220px', padding: '10px 0', borderRadius: 12, textAlign: 'center',
               background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)',
               color: '#4ade80', fontWeight: 600, fontSize: 14,
-            }}>✅ 已准备，等待其他玩家...</div>
+            }}>已准备，等待其他玩家...</div>
           )}
           {myReadyStatus === 'spectating' && (
             <button
               onClick={onJoinNextHand}
               style={{
-                flex: 1, padding: '12px 0', borderRadius: 14, cursor: 'pointer',
+                flex: '1 1 220px', padding: '10px 0', borderRadius: 12, cursor: 'pointer',
                 background: 'rgba(240,208,96,0.14)', border: '1px solid rgba(240,208,96,0.35)',
-                color: '#f0d060', fontWeight: 700, fontSize: 15,
+                color: '#f0d060', fontWeight: 700, fontSize: 14,
               }}
-            >🪑 下局参与</button>
+            >下局参与</button>
           )}
           {myReadyStatus === 'queued' && (
             <div style={{
-              flex: 1, padding: '12px 0', borderRadius: 14, textAlign: 'center',
+              flex: '1 1 220px', padding: '10px 0', borderRadius: 12, textAlign: 'center',
               background: 'rgba(240,208,96,0.1)', border: '1px solid rgba(240,208,96,0.25)',
               color: '#fbbf24', fontWeight: 600, fontSize: 14,
-            }}>🪑 下局将参与</div>
+            }}>下局将参与</div>
           )}
         </div>
 
@@ -1639,6 +1772,9 @@ function SettlementScreen({
 // ── Waiting room overlay ───────────────────────────────────────
 function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
   const tx = (key, def) => theme?.text?.[key] ?? def;
+  const [showHeroPicker, setShowHeroPicker] = useState(false);
+  const me = room.players.find(p => p.socketId === mySocketId);
+  const myHero = me?.heroId ? HEROES.find(h => h.id === me.heroId) : null;
 
   return (
     <div style={{
@@ -1650,6 +1786,26 @@ function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
           <p style={{ color: 'rgba(240,208,96,0.5)', fontSize: 13, margin: '0 0 6px' }}>分享房间号给朋友</p>
           <p style={{ color: '#f0d060', fontSize: 40, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '0.2em', margin: 0 }}>{room.roomId}</p>
         </div>
+
+        {/* Hero selection button */}
+        <button
+          onClick={() => setShowHeroPicker(true)}
+          style={{
+            width: '100%', padding: '10px 0', borderRadius: 12, cursor: 'pointer',
+            background: myHero ? 'rgba(240,208,96,0.15)' : 'rgba(59,130,246,0.18)',
+            border: `1.5px solid ${myHero ? 'rgba(240,208,96,0.5)' : 'rgba(59,130,246,0.45)'}`,
+            color: myHero ? '#f0d060' : '#93c5fd',
+            fontWeight: 700, fontSize: 14, marginBottom: 14,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          }}
+        >
+          {myHero ? (
+            <>
+              <img src={myHero.img} style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' }} alt="" />
+              {myHero.name} · 更换{tx('heroNoun', '英雄')}
+            </>
+          ) : `🦸 ${tx('heroPickerTitle', '选择你的英雄')}`}
+        </button>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
           {room.players.map(p => {
@@ -1667,14 +1823,9 @@ function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
                       {p.nickname}
                       {p.socketId === mySocketId && <span style={{ color: '#f0d060', fontSize: 11 }}> (我)</span>}
                     </div>
-                    {p.heroId && hero.title && hero.titleType && (
-                      <div style={{
-                        fontSize: 10, fontWeight: 700, marginTop: 2,
-                        color: TITLE_TYPE_STYLE[hero.titleType]?.bg || '#f0d060',
-                      }}>
-                        {hero.titleType}·{hero.title}
-                      </div>
-                    )}
+                    <div style={{ fontSize: 11, color: p.heroId ? '#f0d060' : 'rgba(255,255,255,0.28)' }}>
+                      {hero.name}{!p.heroId && ' (随机)'}
+                    </div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1719,6 +1870,191 @@ function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
         )}
       </div>
 
+      {showHeroPicker && (
+        <HeroPicker
+          players={room.players}
+          mySocketId={mySocketId}
+          myHeroId={me?.heroId}
+          onSelect={(heroId) => {
+            socket.emit('selectHero', { roomId, heroId });
+            setShowHeroPicker(false);
+          }}
+          onClose={() => setShowHeroPicker(false)}
+          theme={theme}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── 英雄选择器 ────────────────────────────────────────────────
+function HeroPicker({ players, mySocketId, myHeroId, onSelect, onClose, theme }) {
+  const tx = (key, def) => theme?.text?.[key] ?? def;
+  const claimedByOthers = new Set(
+    players.filter(p => p.heroId && p.socketId !== mySocketId).map(p => p.heroId)
+  );
+  const SEASON_COLORS = { S1: '#f0d060', S2: '#a78bfa' };
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.92)' }} onClick={onClose}>
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+        display: 'flex', flexDirection: 'column',
+        margin: '24px 16px',
+        background: '#111c30', borderRadius: 22,
+        border: '1px solid rgba(240,208,96,0.22)',
+        overflow: 'hidden',
+      }} onClick={e => e.stopPropagation()}>
+
+        {/* 固定标题栏 */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 20px 12px', flexShrink: 0,
+          borderBottom: '1px solid rgba(255,255,255,0.07)',
+        }}>
+          <h3 style={{ color: '#f0d060', fontWeight: 700, fontSize: 18, margin: 0 }}>🦸 {tx('heroPickerTitle', '选择你的英雄')}</h3>
+          <button onClick={onClose} style={{ color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none', fontSize: 24, cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
+        </div>
+
+        {/* 可滚动内容区 */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 16px' }}>
+          {HERO_SEASONS.map(({ season, heroes }) => (
+            <div key={season} style={{ marginBottom: 18 }}>
+              {/* 赛季标题 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span style={{
+                  background: SEASON_COLORS[season] || '#f0d060',
+                  color: '#0a0f1a', fontWeight: 900, fontSize: 11,
+                  padding: '2px 10px', borderRadius: 8,
+                }}>{season}</span>
+                <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
+              </div>
+
+              {/* S1: 每行一张大卡片 */}
+              {season === 'S1' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {heroes.map(hero => {
+                    const isTaken = claimedByOthers.has(hero.id);
+                    const isSelected = hero.id === myHeroId;
+                    const ts = TITLE_TYPE_STYLE[hero.titleType] || { bg: '#374151', color: '#fff' };
+                    return (
+                      <button
+                        key={hero.id}
+                        onClick={() => !isTaken && onSelect(hero.id)}
+                        disabled={isTaken}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 14,
+                          background: isSelected ? 'rgba(240,208,96,0.12)' : 'rgba(255,255,255,0.04)',
+                          border: `1.5px solid ${isSelected ? '#f0d060' : isTaken ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)'}`,
+                          borderRadius: 16, padding: '10px 14px',
+                          cursor: isTaken ? 'not-allowed' : 'pointer',
+                          opacity: isTaken ? 0.35 : 1,
+                          textAlign: 'left', width: '100%',
+                        }}
+                      >
+                        {/* 大头像 */}
+                        <div style={{ position: 'relative', flexShrink: 0 }}>
+                          <img src={hero.img} alt={hero.name} style={{
+                            width: 68, height: 68, borderRadius: '50%', objectFit: 'cover',
+                            border: `2.5px solid ${isSelected ? '#f0d060' : isTaken ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.2)'}`,
+                          }} />
+                          {isTaken && (
+                            <div style={{
+                              position: 'absolute', inset: 0, borderRadius: '50%',
+                              background: 'rgba(0,0,0,0.6)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 12, color: '#f87171', fontWeight: 700,
+                            }}>已选</div>
+                          )}
+                          {isSelected && (
+                            <div style={{
+                              position: 'absolute', bottom: 0, right: 0,
+                              width: 20, height: 20, borderRadius: '50%',
+                              background: '#f0d060', color: '#000',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 12, fontWeight: 900, border: '2px solid #111c30',
+                            }}>✓</div>
+                          )}
+                        </div>
+
+                        {/* 文字信息 */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+                            <span style={{ color: isSelected ? '#f0d060' : '#fff', fontWeight: 700, fontSize: 15 }}>{hero.name}</span>
+                            {hero.title && <span style={{ color: 'rgba(255,255,255,0.55)', fontWeight: 800, fontSize: 14 }}>{hero.title}</span>}
+                            {hero.titleType && (
+                              <span style={{
+                                background: ts.bg, color: ts.color,
+                                fontSize: 10, fontWeight: 700,
+                                padding: '1px 6px', borderRadius: 6, flexShrink: 0,
+                              }}>{hero.titleType}</span>
+                            )}
+                          </div>
+                          {hero.desc && (
+                            <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, lineHeight: 1.5 }}>{hero.desc}</div>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                /* S2: 3列小格子 */
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+                  {heroes.map(hero => {
+                    const isTaken = claimedByOthers.has(hero.id);
+                    const isSelected = hero.id === myHeroId;
+                    return (
+                      <button
+                        key={hero.id}
+                        onClick={() => !isTaken && onSelect(hero.id)}
+                        disabled={isTaken}
+                        style={{
+                          background: isSelected ? 'rgba(167,139,250,0.18)' : 'rgba(255,255,255,0.06)',
+                          border: `2px solid ${isSelected ? '#a78bfa' : isTaken ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.15)'}`,
+                          borderRadius: 14, padding: '10px 4px',
+                          cursor: isTaken ? 'not-allowed' : 'pointer',
+                          opacity: isTaken ? 0.32 : 1,
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                        }}
+                      >
+                        <div style={{ position: 'relative', width: 62, height: 62 }}>
+                          <img src={hero.img} alt={hero.name} style={{
+                            width: 62, height: 62, borderRadius: '50%', objectFit: 'cover',
+                            border: `2.5px solid ${isSelected ? '#a78bfa' : 'transparent'}`,
+                          }} />
+                          {isTaken && (
+                            <div style={{
+                              position: 'absolute', inset: 0, borderRadius: '50%',
+                              background: 'rgba(0,0,0,0.55)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 11, color: '#f87171', fontWeight: 700,
+                            }}>已选</div>
+                          )}
+                          {isSelected && (
+                            <div style={{
+                              position: 'absolute', bottom: -2, right: -2,
+                              width: 18, height: 18, borderRadius: '50%',
+                              background: '#a78bfa', color: '#000',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 11, fontWeight: 900,
+                            }}>✓</div>
+                          )}
+                        </div>
+                        <span style={{ color: isSelected ? '#a78bfa' : '#e2e8f0', fontSize: 12, fontWeight: 600 }}>{hero.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
+
+          <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, textAlign: 'center', margin: '4px 0 0' }}>
+            未选择则随机分配 · 进入游戏后名字以房间昵称为准
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
