@@ -231,7 +231,6 @@ export default function GameRoom() {
   const [handHistory, setHandHistory] = useState([]);
   const [rebuyError, setRebuyError] = useState('');
   const [settlementData, setSettlementData] = useState(null);
-  const [winAnimating, setWinAnimating] = useState(false);
   const [settlementDeadline, setSettlementDeadline] = useState(null);
   const [settlementCountdown, setSettlementCountdown] = useState(0);
   const [cardReveals, setCardReveals] = useState({});
@@ -367,10 +366,6 @@ export default function GameRoom() {
       setSettlementDeadline(deadline);
       setCardReveals({});
       setMessage('');
-      if (!isReconnect) {
-        setWinAnimating(true);
-        setTimeout(() => setWinAnimating(false), 1000);
-      }
     };
     const onJoinedRoom = ({ room: r }) => {
       // Reconnect path: server will follow up with showdown event if in settlement
@@ -530,6 +525,7 @@ export default function GameRoom() {
   const showActionButtons = isMyTurn && me && !me.folded && me.chips > 0 && room.phase !== 'showdown' && room.phase !== 'waiting';
   const showRebuyButton = me && room.phase !== 'waiting' && (me.folded || me.chips === 0);
   const hasMyCards = (me?.holeCards?.length ?? 0) > 0;
+  const isSettlementPhase = room.phase === 'settlement' || !!settlementData;
 
   const themeConfig = THEMES[room?.settings?.theme] || THEMES.macau;
   const tx = (key, def) => themeConfig.text[key] ?? def;
@@ -646,10 +642,12 @@ export default function GameRoom() {
               actionBadges={actionBadges}
               raisePopups={raisePopups}
               theme={themeConfig}
+              settlementData={isSettlementPhase ? settlementData : null}
+              cardReveals={cardReveals}
             />
 
             {/* My hole cards */}
-            {hasMyCards && (
+            {hasMyCards && !isSettlementPhase && (
               <div style={{
                 position: 'absolute', bottom: 90, left: '50%', transform: 'translateX(-50%)',
                 zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
@@ -780,7 +778,19 @@ export default function GameRoom() {
           borderTop: '1px solid rgba(255,255,255,0.07)',
           display: 'flex', alignItems: 'center', padding: '0 12px', gap: 10,
         }}>
-          {showActionButtons ? (
+          {isSettlementPhase ? (
+            <SettlementControls
+              settlementData={settlementData}
+              room={room}
+              mySocketId={mySocketId}
+              settlementCountdown={settlementCountdown}
+              cardReveals={cardReveals}
+              onRevealCards={sendRevealCards}
+              onReady={sendReadyForNextHand}
+              onSpectate={sendSpectateNextHand}
+              onJoinNextHand={sendQueueNextHand}
+            />
+          ) : showActionButtons ? (
             <>
               <button
                 className={`action-btn${isXianfeng ? ' xf-fold' : ''}`}
@@ -939,14 +949,6 @@ export default function GameRoom() {
             box-shadow: 0 1px 4px rgba(0,0,0,0.5) !important;
             filter: brightness(0.70) saturate(1.3) !important;
           }
-          @keyframes win-fade-in {
-            from { opacity:0; transform:scale(0.85); }
-            to   { opacity:1; transform:scale(1); }
-          }
-          @keyframes crown-bounce {
-            from { transform:translateY(0) scale(1); }
-            to   { transform:translateY(-10px) scale(1.12); }
-          }
           @keyframes raise-float-up {
             0%   { opacity:0; transform:translateX(-50%) translateY(4px) scale(0.5); }
             18%  { opacity:1; transform:translateX(-50%) translateY(-12px) scale(1.25); }
@@ -1005,25 +1007,6 @@ export default function GameRoom() {
           <HandHistoryPanel history={handHistory} onClose={() => setShowHistory(false)} />
         )}
 
-        {winAnimating && settlementData && (
-          <WinAnimation results={settlementData.results} />
-        )}
-
-        {(room.phase === 'settlement' || settlementData) && !winAnimating && (
-          <SettlementScreen
-            settlementData={settlementData}
-            room={room}
-            mySocketId={mySocketId}
-            settlementCountdown={settlementCountdown}
-            cardReveals={cardReveals}
-            onRevealCards={sendRevealCards}
-            onReady={sendReadyForNextHand}
-            onSpectate={sendSpectateNextHand}
-            onJoinNextHand={sendQueueNextHand}
-            theme={themeConfig}
-            phaseLabelMap={phaseLabelMap}
-          />
-        )}
       </div>
     </div>
   );
@@ -1044,7 +1027,7 @@ const presetBtn = {
 };
 
 // ── Poker table: only player avatars, no CSS oval ──────────────
-function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtendTime, tauntBubbles, onMyAvatarClick, actionBadges, raisePopups, theme }) {
+function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtendTime, tauntBubbles, onMyAvatarClick, actionBadges, raisePopups, theme, settlementData, cardReveals }) {
   const n = room.players.length;
   const myIdx = room.players.findIndex(p => p.socketId === mySocketId);
   const orderedPlayers = myIdx >= 0
@@ -1059,6 +1042,7 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
         const origIdx = myIdx >= 0 ? (myIdx + seatPos) % n : seatPos;
         const isThisPlayersTurn = room.currentTurnIndex === origIdx;
         const isMe = player.socketId === mySocketId;
+        const settlementResult = settlementData?.results?.find(r => r.socketId === player.socketId) || null;
         return (
           <AvatarTimer
             key={player.socketId}
@@ -1081,6 +1065,8 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
             actionBadge={actionBadges?.[player.socketId]}
             raisePopup={raisePopups?.[player.socketId]}
             theme={theme}
+            settlementResult={settlementResult}
+            revealedCards={cardReveals?.[player.socketId] || settlementResult?.holeCards || []}
           />
         );
       })}
@@ -1089,7 +1075,7 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
 }
 
 // ── Avatar with timer ring ─────────────────────────────────────
-function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime, bubble, onAvatarClick, actionBadge, raisePopup, theme }) {
+function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime, bubble, onAvatarClick, actionBadge, raisePopup, theme, settlementResult, revealedCards }) {
   const CIRCUMFERENCE = 2 * Math.PI * 20;
   const duration = timerInfo?.duration || 20;
   const dashOffset = CIRCUMFERENCE * (1 - (isCurrentTurn && countdown > 0 ? countdown / duration : 0));
@@ -1113,6 +1099,11 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
 
   const baseScale = isCurrentTurn ? 1.18 : 1;
   const effectiveScale = avatarScale > 1 ? avatarScale : baseScale;
+  const settlementCardsVisible = !!settlementResult
+    && revealedCards?.length > 0
+    && revealedCards.every(c => c !== 'hidden');
+  const settlementDelta = settlementResult?.delta ?? 0;
+  const isSettlementWinner = settlementDelta > 0;
 
   return (
     <div style={posStyle}>
@@ -1198,6 +1189,46 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
           {player.status === 'spectating' && <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.38)' }}>👁</div>}
           {player.disconnected && player.status !== 'spectating' && <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.38)' }}>断线</div>}
         </div>
+
+        {settlementResult && (
+          <div style={{
+            marginTop: 3,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 3,
+            pointerEvents: 'none',
+          }}>
+            <div style={{
+              color: isSettlementWinner ? '#4ade80' : settlementDelta < 0 ? '#f87171' : 'rgba(255,255,255,0.68)',
+              fontSize: isMe ? 16 : 14,
+              fontWeight: 900,
+              textShadow: '0 2px 8px rgba(0,0,0,0.95)',
+            }}>
+              {settlementDelta > 0 ? `+${settlementDelta}` : settlementDelta}
+            </div>
+            {settlementCardsVisible && (
+              <>
+                <div style={{ display: 'flex', gap: 3 }}>
+                  {revealedCards.map((card, i) => (
+                    <Card key={i} card={card} size={isMe ? 'md' : 'sm'} />
+                  ))}
+                </div>
+                {settlementResult.handName && (
+                  <div style={{
+                    color: '#f0d060',
+                    fontSize: isMe ? 13 : 12,
+                    fontWeight: 800,
+                    whiteSpace: 'nowrap',
+                    textShadow: '0 2px 8px rgba(0,0,0,0.95)',
+                  }}>
+                    {HAND_NAME_MAP[settlementResult.handName] || settlementResult.handName}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {isMe && isMyTurn && isCurrentTurn && timerInfo?.hasTimeBank && countdown > 0 && (
           <button onClick={onExtendTime} style={{
@@ -1346,12 +1377,159 @@ function Scoreboard({ room, mySocketId, onClose, theme }) {
 }
 
 // ── Settlement overlay ─────────────────────────────────────────
-const SETTLEMENT_DURATION = 10;
+const SETTLEMENT_DURATION = 30;
 
 const READY_STATUS_ICON = { ready: '✅', queued: '🪑', spectating: '👁', pending: '⏳' };
 
 const ACTION_LOG_LABELS = { fold: '弃牌', call: '跟注', check: '过牌', raise: '加注', allin: '全下' };
 const PHASE_ORDER = ['preflop', 'flop', 'turn', 'river'];
+
+function SettlementControls({
+  settlementData, room, mySocketId, settlementCountdown,
+  cardReveals, onRevealCards, onReady, onSpectate, onJoinNextHand,
+}) {
+  const me = room?.players?.find(p => p.socketId === mySocketId);
+  const myReadyStatus = me?.readyStatus || 'pending';
+  const myHoleCards = me?.holeCards ?? [];
+  const hasRevealed = !!cardReveals[mySocketId];
+  const canReveal = myHoleCards.length > 0 && !hasRevealed;
+  const winners = settlementData?.results?.filter(r => r.delta > 0) || [];
+  const winnerText = winners.length > 0
+    ? winners.map(w => `${w.nickname} +${w.delta}`).join(' / ')
+    : '等待结算';
+
+  const btnBase = {
+    flex: '1 1 0',
+    minWidth: 0,
+    height: 46,
+    borderRadius: 12,
+    cursor: 'pointer',
+    fontWeight: 800,
+    fontSize: 14,
+  };
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 7 }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+        minHeight: 16,
+      }}>
+        <div style={{
+          color: '#f0d060',
+          fontSize: 12,
+          fontWeight: 800,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}>
+          本局结算 · {winnerText}
+        </div>
+        {settlementCountdown > 0 && (
+          <div style={{ color: 'rgba(255,255,255,0.62)', fontSize: 12, flexShrink: 0 }}>
+            {settlementCountdown}s
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        {canReveal && (
+          <button
+            onClick={onRevealCards}
+            style={{
+              ...btnBase,
+              border: '1px solid rgba(240,208,96,0.42)',
+              background: 'rgba(240,208,96,0.13)',
+              color: '#f0d060',
+            }}
+          >秀牌</button>
+        )}
+        {myHoleCards.length > 0 && hasRevealed && (
+          <div style={{
+            ...btnBase,
+            cursor: 'default',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: '1px solid rgba(240,208,96,0.18)',
+            background: 'rgba(240,208,96,0.06)',
+            color: 'rgba(240,208,96,0.75)',
+          }}>已秀牌</div>
+        )}
+        {myReadyStatus === 'pending' && (
+          <>
+            <button
+              onClick={onReady}
+              style={{
+                ...btnBase,
+                border: 'none',
+                background: 'linear-gradient(135deg,#14532d,#166534)',
+                color: '#fff',
+              }}
+            >准备</button>
+            <button
+              onClick={onSpectate}
+              style={{
+                ...btnBase,
+                border: '1px solid rgba(255,255,255,0.2)',
+                background: 'rgba(255,255,255,0.08)',
+                color: 'rgba(255,255,255,0.82)',
+              }}
+            >观战</button>
+          </>
+        )}
+        {myReadyStatus === 'ready' && (
+          <div style={{
+            ...btnBase,
+            cursor: 'default',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: '1px solid rgba(34,197,94,0.3)',
+            background: 'rgba(34,197,94,0.12)',
+            color: '#4ade80',
+          }}>已准备</div>
+        )}
+        {myReadyStatus === 'spectating' && (
+          <button
+            onClick={onJoinNextHand}
+            style={{
+              ...btnBase,
+              border: '1px solid rgba(240,208,96,0.35)',
+              background: 'rgba(240,208,96,0.14)',
+              color: '#f0d060',
+            }}
+          >下局参与</button>
+        )}
+        {myReadyStatus === 'queued' && (
+          <div style={{
+            ...btnBase,
+            cursor: 'default',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: '1px solid rgba(240,208,96,0.25)',
+            background: 'rgba(240,208,96,0.1)',
+            color: '#fbbf24',
+          }}>下局将参与</div>
+        )}
+      </div>
+
+      {settlementCountdown > 0 && (
+        <div style={{ height: 3, borderRadius: 4, overflow: 'hidden', background: 'rgba(255,255,255,0.12)' }}>
+          <div style={{
+            height: '100%',
+            width: `${(settlementCountdown / SETTLEMENT_DURATION) * 100}%`,
+            background: '#f0d060',
+            transition: 'width 1s linear',
+          }} />
+        </div>
+      )}
+    </div>
+  );
+}
 
 function formatLogEntry(entry) {
   const label = ACTION_LOG_LABELS[entry.action] || entry.action;
@@ -1371,18 +1549,21 @@ function SettlementScreen({
   const myReadyStatus = me?.readyStatus || 'pending';
   const hasRevealed = !!cardReveals[mySocketId];
   const myHoleCards = me?.holeCards ?? [];
+  const canReveal = myHoleCards.length > 0 && !hasRevealed;
 
   return (
     <div style={{
-      position: 'absolute', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.82)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: '52px 14px 14px',
+      position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 40,
+      display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+      padding: '0 12px 12px', pointerEvents: 'none',
     }}>
       <div style={{
-        background: '#1a2f4a', borderRadius: 20, padding: 16,
+        background: 'rgba(18,30,48,0.96)', borderRadius: 14, padding: 14,
         border: '1px solid rgba(240,208,96,0.28)', width: '100%',
-        maxHeight: '100%', overflow: 'auto',
+        maxWidth: 560, maxHeight: '62vh', overflow: 'auto',
         display: 'flex', flexDirection: 'column', gap: 10,
+        boxShadow: '0 12px 36px rgba(0,0,0,0.45)',
+        pointerEvents: 'auto',
       }}>
 
         {/* Title + live countdown */}
@@ -1476,66 +1657,67 @@ function SettlementScreen({
           </div>
         )}
 
-        {/* 亮牌 button: only show if I have cards and haven't revealed yet */}
-        {myHoleCards.length > 0 && !hasRevealed && (
-          <button
-            onClick={onRevealCards}
-            style={{
-              width: '100%', padding: '9px 0', borderRadius: 13,
-              border: '1px solid rgba(240,208,96,0.35)', background: 'none',
-              color: '#f0d060', fontWeight: 600, fontSize: 14, cursor: 'pointer',
-            }}
-          >亮牌 🂠</button>
-        )}
-        {myHoleCards.length > 0 && hasRevealed && (
-          <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.32)', fontSize: 12 }}>已亮牌</div>
-        )}
-
-        {/* Action buttons based on myReadyStatus */}
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {canReveal && (
+            <button
+              onClick={onRevealCards}
+              style={{
+                flex: '1 1 110px', padding: '10px 0', borderRadius: 12,
+                border: '1px solid rgba(240,208,96,0.35)', background: 'rgba(240,208,96,0.08)',
+                color: '#f0d060', fontWeight: 700, fontSize: 14, cursor: 'pointer',
+              }}
+            >秀牌</button>
+          )}
+          {myHoleCards.length > 0 && hasRevealed && (
+            <div style={{
+              flex: '1 1 110px', padding: '10px 0', borderRadius: 12, textAlign: 'center',
+              background: 'rgba(240,208,96,0.06)', border: '1px solid rgba(240,208,96,0.18)',
+              color: 'rgba(240,208,96,0.72)', fontWeight: 600, fontSize: 14,
+            }}>已秀牌</div>
+          )}
           {myReadyStatus === 'pending' && (
             <>
               <button
                 onClick={onReady}
                 style={{
-                  flex: 1, padding: '12px 0', borderRadius: 14, border: 'none', cursor: 'pointer',
+                  flex: '1 1 110px', padding: '10px 0', borderRadius: 12, border: 'none', cursor: 'pointer',
                   background: 'linear-gradient(135deg,#14532d,#166534)', color: '#fff',
-                  fontWeight: 700, fontSize: 15,
+                  fontWeight: 700, fontSize: 14,
                 }}
-              >✅ {tx('readyNext', '准备下一局')}</button>
+              >准备</button>
               <button
                 onClick={onSpectate}
                 style={{
-                  flex: 1, padding: '12px 0', borderRadius: 14, cursor: 'pointer',
+                  flex: '1 1 110px', padding: '10px 0', borderRadius: 12, cursor: 'pointer',
                   background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.2)',
-                  color: 'rgba(255,255,255,0.7)', fontWeight: 600, fontSize: 15,
+                  color: 'rgba(255,255,255,0.74)', fontWeight: 600, fontSize: 14,
                 }}
-              >👁 {tx('spectateNext', '本局观战')}</button>
+              >观战</button>
             </>
           )}
           {myReadyStatus === 'ready' && (
             <div style={{
-              flex: 1, padding: '12px 0', borderRadius: 14, textAlign: 'center',
+              flex: '1 1 220px', padding: '10px 0', borderRadius: 12, textAlign: 'center',
               background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)',
               color: '#4ade80', fontWeight: 600, fontSize: 14,
-            }}>✅ 已准备，等待其他玩家...</div>
+            }}>已准备，等待其他玩家...</div>
           )}
           {myReadyStatus === 'spectating' && (
             <button
               onClick={onJoinNextHand}
               style={{
-                flex: 1, padding: '12px 0', borderRadius: 14, cursor: 'pointer',
+                flex: '1 1 220px', padding: '10px 0', borderRadius: 12, cursor: 'pointer',
                 background: 'rgba(240,208,96,0.14)', border: '1px solid rgba(240,208,96,0.35)',
-                color: '#f0d060', fontWeight: 700, fontSize: 15,
+                color: '#f0d060', fontWeight: 700, fontSize: 14,
               }}
-            >🪑 下局参与</button>
+            >下局参与</button>
           )}
           {myReadyStatus === 'queued' && (
             <div style={{
-              flex: 1, padding: '12px 0', borderRadius: 14, textAlign: 'center',
+              flex: '1 1 220px', padding: '10px 0', borderRadius: 12, textAlign: 'center',
               background: 'rgba(240,208,96,0.1)', border: '1px solid rgba(240,208,96,0.25)',
               color: '#fbbf24', fontWeight: 600, fontSize: 14,
-            }}>🪑 下局将参与</div>
+            }}>下局将参与</div>
           )}
         </div>
 
@@ -2001,33 +2183,6 @@ function TauntPicker({ tab, onTabChange, onSend, onClose }) {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// ── 胜者动画覆盖层（1s）──────────────────────────────────────
-function WinAnimation({ results }) {
-  const winners = (results || []).filter(r => r.delta > 0);
-  if (winners.length === 0) return null;
-  const text = winners.length === 1
-    ? `🏆 ${winners[0].nickname} 赢了！`
-    : `🏆 ${winners.map(w => w.nickname).join(' & ')} 平分！`;
-  return (
-    <div style={{
-      position: 'absolute', inset: 0, zIndex: 45,
-      background: 'rgba(0,0,0,0.78)',
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      animation: 'win-fade-in 0.25s ease forwards',
-    }}>
-      <div style={{
-        fontSize: 72, lineHeight: 1,
-        animation: 'crown-bounce 0.4s ease-in-out infinite alternate',
-      }}>👑</div>
-      <div style={{
-        color: '#f0d060', fontSize: 26, fontWeight: 800, marginTop: 14,
-        textShadow: '0 2px 24px rgba(240,208,96,0.9)',
-        textAlign: 'center', padding: '0 24px',
-      }}>{text}</div>
     </div>
   );
 }

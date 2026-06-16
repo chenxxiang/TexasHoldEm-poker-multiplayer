@@ -560,7 +560,7 @@ module.exports = (io, socket) => {
     });
 
     const wasMuckWin = active.length === 1;
-    const settlementDeadline = Date.now() + 10000;
+    const settlementDeadline = Date.now() + 30000;
 
     // Save hand to history
     const handRecord = {
@@ -606,7 +606,7 @@ module.exports = (io, socket) => {
       });
       if (changed) broadcastToEach(io, r, 'gameStateUpdate');
       checkAllReadyAndStart(roomId);
-    }, 10000);
+    }, 30000);
   }
 
   // ── 工具函数 ──────────────────────────────────────────────
