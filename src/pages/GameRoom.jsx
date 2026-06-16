@@ -1814,8 +1814,21 @@ function SettlementScreen({
 function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
   const tx = (key, def) => theme?.text?.[key] ?? def;
   const [showHeroPicker, setShowHeroPicker] = useState(false);
+  const [heroTakenMsg, setHeroTakenMsg] = useState(false);
   const me = room.players.find(p => p.socketId === mySocketId);
   const myHero = me?.heroId ? HEROES.find(h => h.id === me.heroId) : null;
+
+  useEffect(() => {
+    const onHeroError = ({ code }) => {
+      if (code === 'HERO_TAKEN') {
+        localStorage.removeItem('poker_hero');
+        setHeroTakenMsg(true);
+        setShowHeroPicker(true);
+      }
+    };
+    socket.on('heroError', onHeroError);
+    return () => socket.off('heroError', onHeroError);
+  }, []);
 
   return (
     <div style={{
@@ -1829,13 +1842,20 @@ function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
         </div>
 
         {/* Hero selection button */}
+        {heroTakenMsg && !myHero && (
+          <div style={{
+            color: '#f87171', fontSize: 12, textAlign: 'center',
+            background: 'rgba(248,113,113,0.1)', borderRadius: 8,
+            padding: '5px 10px', marginBottom: 8,
+          }}>⚠️ 该英雄已被房间内其他玩家选择，请重新选择</div>
+        )}
         <button
-          onClick={() => setShowHeroPicker(true)}
+          onClick={() => { setShowHeroPicker(true); setHeroTakenMsg(false); }}
           style={{
             width: '100%', padding: '10px 0', borderRadius: 12, cursor: 'pointer',
-            background: myHero ? 'rgba(240,208,96,0.15)' : 'rgba(59,130,246,0.18)',
-            border: `1.5px solid ${myHero ? 'rgba(240,208,96,0.5)' : 'rgba(59,130,246,0.45)'}`,
-            color: myHero ? '#f0d060' : '#93c5fd',
+            background: myHero ? 'rgba(240,208,96,0.15)' : heroTakenMsg ? 'rgba(248,113,113,0.14)' : 'rgba(59,130,246,0.18)',
+            border: `1.5px solid ${myHero ? 'rgba(240,208,96,0.5)' : heroTakenMsg ? 'rgba(248,113,113,0.5)' : 'rgba(59,130,246,0.45)'}`,
+            color: myHero ? '#f0d060' : heroTakenMsg ? '#f87171' : '#93c5fd',
             fontWeight: 700, fontSize: 14, marginBottom: 14,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}
@@ -1845,7 +1865,7 @@ function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
               <img src={myHero.img} style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' }} alt="" />
               {myHero.name} · 更换{tx('heroNoun', '英雄')}
             </>
-          ) : `🦸 ${tx('heroPickerTitle', '选择你的英雄')}`}
+          ) : `🦸 ${heroTakenMsg ? '英雄已被占用，重新选择' : tx('heroPickerTitle', '选择你的英雄')}`}
         </button>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
