@@ -1,5 +1,6 @@
 const RoomManager = require('../game/roomManager');
 const TimerManager = require('../timerManager');
+const { calculateSidePots, splitPotAmount } = require('../game/pots');
 
 const roomManager = new RoomManager();
 const timerManager = new TimerManager();
@@ -141,7 +142,10 @@ module.exports = (io, socket) => {
     if (!room) { socket.emit('rebuyError', { code: 'ROOM_NOT_FOUND' }); return; }
     const player = room.players.find(p => p.socketId === socket.id);
     if (!player) { socket.emit('rebuyError', { code: 'PLAYER_NOT_FOUND' }); return; }
-    if (room.phase !== 'waiting' && !player.folded && player.chips > 0) {
+    // Only allow topping up players who are actually out of chips (or before a
+    // hand has started). Folding is not the same as busting — a folded player
+    // who still has chips must not be able to add more.
+    if (room.phase !== 'waiting' && player.chips > 0) {
       socket.emit('rebuyError', { code: 'CANNOT_REBUY_NOW' });
       return;
     }
@@ -421,6 +425,11 @@ module.exports = (io, socket) => {
     timerManager.startTimer(room.roomId, actor.nickname, room.settings.actionTime || 20, (actorNickname, roomId) => {
       const r = roomManager.getRoom(roomId);
       if (!r) return;
+      // Race guard: if the real action for this turn already resolved the hand
+      // (e.g. moved to showdown/settlement) before this stale timeout fired,
+      // the turn-order recompute can land back on a player whose nickname still
+      // matches — do not re-run betting logic outside an active betting street.
+      if (!['preflop', 'flop', 'turn', 'river'].includes(r.phase)) return;
       const timedOutActor = r.players[r.currentTurnIndex];
       // Match by nickname to handle reconnects where socketId changed
       if (!timedOutActor || timedOutActor.nickname !== actorNickname) return;
@@ -438,35 +447,6 @@ module.exports = (io, socket) => {
     });
   }
 
-  // 边池计算
-  function calculateSidePots(players) {
-    const entries = players
-      .map(p => ({ player: p, amount: p.totalBet || 0, folded: p.folded }))
-      .filter(e => e.amount > 0)
-      .sort((a, b) => a.amount - b.amount);
-
-    const pots = [];
-    let prevLevel = 0;
-    let remaining = [...entries];
-    let carryover = 0;
-
-    while (remaining.length > 0) {
-      const level = remaining[0].amount;
-      const potAmount = (level - prevLevel) * remaining.length + carryover;
-      const eligible = remaining.filter(e => !e.folded).map(e => e.player);
-      carryover = 0;
-      if (eligible.length > 0) {
-        pots.push({ amount: potAmount, eligible });
-      } else {
-        carryover = potAmount;
-      }
-      prevLevel = level;
-      remaining = remaining.filter(e => e.amount > level);
-    }
-    if (carryover > 0 && pots.length > 0) pots[pots.length - 1].amount += carryover;
-    return pots;
-  }
-
   function recomputeSettlementResults(room, viewerSocketId) {
     if (!room._settlementBaseResults) return [];
     const wasMuckWin = room._settlementWasMuckWin;
@@ -482,6 +462,11 @@ module.exports = (io, socket) => {
   }
 
   function resolveShowdown(room, io, roomId) {
+    // Idempotency guard: a hand must only ever be settled once. Without this,
+    // any duplicate trigger (racing timer, replayed event) that reaches here a
+    // second time would re-distribute an already-emptied pot and record a
+    // phantom hand-history entry, corrupting chip totals.
+    if (room.phase === 'settlement') return;
     const active = room.players.filter(p => !p.folded);
     const winnings = {}; // nickname -> total won
     const potBreakdown = []; // [{ amount, winners: [nickname], type: 'main'|'side' }]
@@ -510,9 +495,9 @@ module.exports = (io, socket) => {
           }));
           const winningHands = Hand.winners(solved.map(s => s.hand));
           const potWinners = solved.filter(s => winningHands.includes(s.hand)).map(s => s.player);
-          const share = Math.floor(pot.amount / potWinners.length);
-          potWinners.forEach(w => {
-            winnings[w.nickname] = (winnings[w.nickname] || 0) + share;
+          const shares = splitPotAmount(pot.amount, potWinners.length);
+          potWinners.forEach((w, i) => {
+            winnings[w.nickname] = (winnings[w.nickname] || 0) + shares[i];
           });
           potBreakdown.push({
             amount: pot.amount,

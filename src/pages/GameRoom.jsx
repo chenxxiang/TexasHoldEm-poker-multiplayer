@@ -535,7 +535,9 @@ export default function GameRoom() {
   const handleRebuy = () => { setRebuyError(''); socket.emit('rebuy', { roomId, amount: room.settings.initialChips }); };
 
   const showActionButtons = isMyTurn && me && !me.folded && me.chips > 0 && room.phase !== 'showdown' && room.phase !== 'waiting';
-  const showRebuyButton = me && room.phase !== 'waiting' && (me.folded || me.chips === 0);
+  // Manual rebuy button is hidden: busted players are auto-topped-up when the
+  // next hand starts (see server's startNextHand), so no self-serve trigger is needed.
+  const showRebuyButton = false;
   const hasMyCards = (me?.holeCards?.length ?? 0) > 0;
   const isSettlementPhase = room.phase === 'settlement' || !!settlementData;
 
