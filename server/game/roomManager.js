@@ -1,12 +1,19 @@
 const { createDeck, shuffle, dealHands, drawCards } = require('./deck');
 const fs = require('fs');
+const fsp = fs.promises;
 const path = require('path');
 
 const PERSIST_FILE = path.join(__dirname, '../../data/rooms.json');
 
 class RoomManager {
-  constructor() {
+  constructor(options = {}) {
     this.rooms = new Map();
+    // How long to coalesce bursts of saveToDisk() calls before actually
+    // writing (see saveToDisk below). Configurable so tests don't need to
+    // wait out a real 500ms debounce window.
+    this._saveDebounceMs = options.saveDebounceMs ?? 500;
+    this._saveTimer = null;
+    this._pendingSavePromise = null;
     this._loadFromDisk();
   }
 
@@ -36,7 +43,7 @@ class RoomManager {
     };
   }
 
-  saveToDisk(rooms) {
+  _buildPersistData(rooms) {
     const target = rooms || this.rooms;
     const data = {};
     for (const [roomId, room] of target.entries()) {
@@ -55,12 +62,43 @@ class RoomManager {
         })),
       };
     }
+    return data;
+  }
+
+  async _flushToDisk() {
+    const data = this._buildPersistData(this._pendingSaveRooms);
+    this._pendingSaveRooms = null;
     try {
-      fs.mkdirSync(path.dirname(PERSIST_FILE), { recursive: true });
-      fs.writeFileSync(PERSIST_FILE, JSON.stringify(data, null, 2));
+      await fsp.mkdir(path.dirname(PERSIST_FILE), { recursive: true });
+      await fsp.writeFile(PERSIST_FILE, JSON.stringify(data, null, 2));
     } catch (e) {
       console.error('[persist] save error:', e.message);
     }
+  }
+
+  // Debounced, non-blocking persistence. A synchronous writeFileSync on every
+  // hand resolution would stall the single-threaded event loop for every
+  // connected client across every room; this coalesces bursts of saves (e.g.
+  // several rooms finishing a hand around the same moment) into a single
+  // async write instead.
+  saveToDisk(rooms) {
+    if (rooms) this._pendingSaveRooms = rooms;
+    if (this._saveTimer) return;
+    this._saveTimer = setTimeout(() => {
+      this._saveTimer = null;
+      this._pendingSavePromise = this._flushToDisk();
+    }, this._saveDebounceMs);
+  }
+
+  // Test helper: force any pending debounced save to run now and resolve
+  // once it has actually been written.
+  async flushPendingSave() {
+    if (this._saveTimer) {
+      clearTimeout(this._saveTimer);
+      this._saveTimer = null;
+      this._pendingSavePromise = this._flushToDisk();
+    }
+    await this._pendingSavePromise;
   }
 
   _loadFromDisk() {

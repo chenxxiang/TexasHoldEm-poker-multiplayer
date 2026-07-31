@@ -15,6 +15,17 @@ const io = new Server(server, {
     origin: '*', // replace with frontend domain in production
     methods: ['GET', 'POST'],
   },
+  // Mobile browsers throttle JS timers heavily when backgrounded/screen-locked,
+  // so heartbeats can lag well past the socket.io defaults (20s timeout) on a
+  // perfectly fine connection. Give it more slack before declaring a client dead.
+  pingInterval: 25000,
+  pingTimeout: 60000,
+  // Lets a client that reconnects within the window resume its previous
+  // session (same socket id, rooms rejoined, missed broadcasts replayed)
+  // instead of surfacing a hard disconnect for brief network blips.
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 2 * 60 * 1000,
+  },
 });
 
 // 托管前端构建产物（前端 build 在项目根目录的 build/ 下）
