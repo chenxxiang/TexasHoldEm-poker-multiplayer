@@ -4,7 +4,7 @@
 #
 
 app = 'cx-game'
-primary_region = 'sin'
+primary_region = 'nrt'
 
 [build]
 
