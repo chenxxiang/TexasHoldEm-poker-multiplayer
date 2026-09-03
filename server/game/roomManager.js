@@ -285,6 +285,8 @@ class RoomManager {
 
     sbPlayer.chips -= sbAmount; sbPlayer.bet = sbAmount; sbPlayer.totalBet = sbAmount;
     bbPlayer.chips -= bbAmount; bbPlayer.bet = bbAmount; bbPlayer.totalBet = bbAmount;
+    if (sbPlayer.chips === 0) sbPlayer.status = 'allin';
+    if (bbPlayer.chips === 0) bbPlayer.status = 'allin';
     room.pot = sbAmount + bbAmount;
     room.betSize = bbAmount;
 

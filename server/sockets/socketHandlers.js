@@ -306,9 +306,7 @@ module.exports = (io, socket) => {
 
     broadcastToEach(io, updatedRoom, 'gameStateUpdate');
 
-    const active = updatedRoom.players.filter(p => !p.folded);
-    const canAct = active.filter(p => p.chips > 0);
-    if (canAct.length === 0 && active.length > 1) {
+    if (shouldAutoRunBoard(updatedRoom)) {
       autoRunBoard(roomId);
     } else {
       startNextPlayerTimer(updatedRoom);
@@ -411,13 +409,27 @@ module.exports = (io, socket) => {
     room.currentTurnIndex = next;
   }
 
+  function shouldAutoRunBoard(room) {
+    const active = room.players.filter(p => !p.folded);
+    if (active.length <= 1) return false;
+
+    const canAct = active.filter(p => p.chips > 0);
+    if (canAct.length === 0) return true;
+
+    // With only one player holding chips, betting can continue only when that
+    // player still owes chips to match an all-in wager.
+    return canAct.length === 1 && canAct[0].bet >= room.betSize;
+  }
+
   function startNextPlayerTimer(room) {
     const actor = room.players[room.currentTurnIndex];
     if (!actor || actor.folded || actor.chips === 0) {
-      const active = room.players.filter(p => !p.folded);
-      const canAct = active.filter(p => p.chips > 0);
-      if (canAct.length === 0 && active.length > 1 && room.phase !== 'showdown' && room.phase !== 'waiting') {
+      if (shouldAutoRunBoard(room) && room.phase !== 'showdown' && room.phase !== 'waiting') {
         autoRunBoard(room.roomId);
+      } else {
+        const previousTurnIndex = room.currentTurnIndex;
+        advanceTurn(room);
+        if (room.currentTurnIndex !== previousTurnIndex) startNextPlayerTimer(room);
       }
       return;
     }
@@ -603,17 +615,20 @@ module.exports = (io, socket) => {
   }
 
   function sanitizeRoom(room, viewerSocketId) {
+    const publicRoom = { ...room };
+    delete publicRoom.deck;
+    delete publicRoom._settlementTimeout;
+    delete publicRoom._cleanupTimeout;
+    delete publicRoom._startingNextHand;
+    delete publicRoom._settlementBaseResults;
+    delete publicRoom._settlementWasMuckWin;
+    delete publicRoom._settlementDeadline;
+    delete publicRoom._actionLog;
+    delete publicRoom._potBreakdown;
+    delete publicRoom._processing;
+
     return {
-      ...room,
-      _settlementTimeout: undefined,
-      _cleanupTimeout: undefined,
-      _startingNextHand: undefined,
-      _settlementBaseResults: undefined,
-      _settlementWasMuckWin: undefined,
-      _settlementDeadline: undefined,
-      _actionLog: undefined,
-      _potBreakdown: undefined,
-      _processing: undefined,
+      ...publicRoom,
       actedPlayerIds: [...(room.actedPlayerIds || [])],
       players: room.players.map(p => ({
         ...p,
