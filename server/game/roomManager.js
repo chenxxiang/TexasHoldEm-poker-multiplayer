@@ -3,11 +3,15 @@ const fs = require('fs');
 const path = require('path');
 
 const PERSIST_FILE = path.join(__dirname, '../../data/rooms.json');
+const DEFAULT_INITIAL_CHIPS = 150;
+const FIXED_SMALL_BLIND = 1;
+const DEFAULT_MAX_REBUY_AMOUNT = 150;
 
 class RoomManager {
-  constructor() {
+  constructor({ persistenceEnabled = process.env.NODE_ENV !== 'test' } = {}) {
     this.rooms = new Map();
-    this._loadFromDisk();
+    this.persistenceEnabled = persistenceEnabled;
+    if (this.persistenceEnabled) this._loadFromDisk();
   }
 
   _generateRoomId() {
@@ -37,6 +41,7 @@ class RoomManager {
   }
 
   saveToDisk(rooms) {
+    if (!this.persistenceEnabled) return;
     const target = rooms || this.rooms;
     const data = {};
     for (const [roomId, room] of target.entries()) {
@@ -71,7 +76,12 @@ class RoomManager {
         const room = {
           roomId,
           hostSocketId: '',
-          settings: saved.settings,
+          settings: {
+            ...saved.settings,
+            initialChips: saved.settings?.initialChips ?? DEFAULT_INITIAL_CHIPS,
+            smallBlind: FIXED_SMALL_BLIND,
+            maxRebuyAmount: saved.settings?.maxRebuyAmount ?? DEFAULT_MAX_REBUY_AMOUNT,
+          },
           players: (saved.players || []).map(p => ({
             ...this._defaultPlayerFields(),
             nickname: p.nickname,
@@ -84,7 +94,7 @@ class RoomManager {
           phase: 'waiting',
           communityCards: [],
           pot: 0,
-          betSize: (saved.settings?.smallBlind || 5) * 2,
+          betSize: FIXED_SMALL_BLIND * 2,
           currentTurnIndex: -1,
           lastAggressorIndex: 0,
           loopNum: 0,
@@ -93,6 +103,9 @@ class RoomManager {
           deck: [],
           actionLog: [],
           handHistory: saved.handHistory || [],
+          autoRunningBoard: false,
+          _handId: 0,
+          _settledHandId: null,
         };
         this.rooms.set(roomId, room);
         console.log(`[persist] restored room ${roomId} with ${room.players.length} players`);
@@ -104,20 +117,22 @@ class RoomManager {
 
   createRoom(socketId, nickname, settings) {
     const roomId = this._generateRoomId();
+    const initialChips = settings.initialChips ?? DEFAULT_INITIAL_CHIPS;
+    const maxRebuyAmount = settings.maxRebuyAmount ?? DEFAULT_MAX_REBUY_AMOUNT;
     const room = {
       roomId,
       hostSocketId: socketId,
       settings: {
-        initialChips: settings.initialChips,
-        smallBlind: settings.smallBlind,
-        maxRebuyAmount: settings.maxRebuyAmount,
+        initialChips,
+        smallBlind: FIXED_SMALL_BLIND,
+        maxRebuyAmount,
         actionTime: settings.actionTime || 20,
         theme: settings.theme || 'macau',
       },
       players: [{
         socketId,
         nickname,
-        chips: settings.initialChips,
+        chips: initialChips,
         seatIndex: 0,
         bet: 0,
         totalBet: 0,
@@ -138,7 +153,7 @@ class RoomManager {
       phase: 'waiting',
       communityCards: [],
       pot: 0,
-      betSize: settings.smallBlind * 2,
+      betSize: FIXED_SMALL_BLIND * 2,
       currentTurnIndex: -1,
       lastAggressorIndex: 0,
       loopNum: 0,
@@ -147,6 +162,9 @@ class RoomManager {
       deck: [],
       actionLog: [],
       handHistory: [],
+      autoRunningBoard: false,
+      _handId: 0,
+      _settledHandId: null,
     };
     this.rooms.set(roomId, room);
     return room;
@@ -228,6 +246,8 @@ class RoomManager {
     console.log('[startGame] playingPlayers:', playingPlayers.length, 'statuses:', room.players.map(p => p.status));
     if (playingPlayers.length < 2) return { error: 'NOT_ENOUGH_PLAYERS' };
 
+    room._handId = (room._handId || 0) + 1;
+
     const n = room.players.length;
 
     for (let i = 0; i < n; i++) {
@@ -277,6 +297,7 @@ class RoomManager {
     room.actedPlayerIds = new Set();
     room.actionLog = [];
     room.phase = 'preflop';
+    room.autoRunningBoard = false;
 
     const sbPlayer = room.players[sbIdx];
     const bbPlayer = room.players[bbIdx];
@@ -288,7 +309,7 @@ class RoomManager {
     if (sbPlayer.chips === 0) sbPlayer.status = 'allin';
     if (bbPlayer.chips === 0) bbPlayer.status = 'allin';
     room.pot = sbAmount + bbAmount;
-    room.betSize = bbAmount;
+    room.betSize = room.settings.smallBlind * 2;
 
     room.currentTurnIndex = firstToActIdx;
     room.lastAggressorIndex = bbIdx;
@@ -361,6 +382,13 @@ class RoomManager {
 
   getRoom(roomId) {
     return this.rooms.get(roomId);
+  }
+
+  claimSettlement(roomId, handId) {
+    const room = this.rooms.get(roomId);
+    if (!room || room._handId !== handId || room._settledHandId === handId) return false;
+    room._settledHandId = handId;
+    return true;
   }
 
   getRoomBySocket(socketId) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { socket } from '../context/SocketContext';
 import Card from '../components/Card';
@@ -77,7 +77,8 @@ const THEMES = {
   macau: {
     id: 'macau',
     name: '澳门风云',
-    bg: '/poker-table-bg.jpg',
+    bg: '/bg2.png',
+    bgStyle: { objectPosition: 'center bottom' },
     text: {},
   },
   xianfeng: {
@@ -108,14 +109,25 @@ function getPlayerHero(player) {
   return HEROES[player.seatIndex % HEROES.length];
 }
 
-// Dynamic seat positions based on player count (i=0 = me at bottom center, others clockwise)
+// Fixed six-seat layout: me at the bottom, then opponents around the table.
+const SIX_PLAYER_SEATS = [
+  { x: 50, y: 74 }, // me
+  { x: 20, y: 34 }, // upper left
+  { x: 50, y: 18 }, // top center
+  { x: 80, y: 34 }, // upper right
+  { x: 20, y: 62 }, // lower left
+  { x: 80, y: 62 }, // lower right
+];
+
 function getSeatPositions(n) {
-  const cx = 50, cy = 42, rx = 42, ry = 24;
+  const cx = 50, cy = 46, rx = 34, ry = 28;
+  if (n <= SIX_PLAYER_SEATS.length) return SIX_PLAYER_SEATS.slice(0, n);
+
   return Array.from({ length: n }, (_, i) => {
     const angle = Math.PI / 2 + (2 * Math.PI * i / n);
     return {
-      x: Math.max(8, Math.min(92, Math.round(cx + rx * Math.cos(angle)))),
-      y: Math.max(16, Math.min(68, Math.round(cy + ry * Math.sin(angle)))),
+      x: Math.max(10, Math.min(90, Math.round(cx + rx * Math.cos(angle)))),
+      y: Math.max(16, Math.min(76, Math.round(cy + ry * Math.sin(angle)))),
     };
   });
 }
@@ -129,28 +141,64 @@ function getPositionLabel(playerIndex, dealerIndex, numPlayers) {
   return null;
 }
 
+function getBlindLabel(playerIndex, dealerIndex, numPlayers) {
+  const dist = (playerIndex - dealerIndex + numPlayers) % numPlayers;
+  if (numPlayers === 2) return dist === 0 ? 'SB' : 'BB';
+  if (dist === 1) return 'SB';
+  if (dist === 2) return 'BB';
+  return null;
+}
+
 // ── Community cards with flip animation ────────────────────────
 function CommunityCards({ cards }) {
   const [revealed, setRevealed] = useState([]);
   const prevLen = useRef(0);
+  const revealTimersRef = useRef(new Set());
+  const revealGenerationRef = useRef(0);
 
   useEffect(() => {
     const newLen = cards.length;
+    if (newLen < prevLen.current) {
+      revealGenerationRef.current += 1;
+      revealTimersRef.current.forEach(timerId => clearTimeout(timerId));
+      revealTimersRef.current.clear();
+      setRevealed([]);
+    }
     if (newLen > prevLen.current) {
+      const generation = revealGenerationRef.current;
       for (let i = prevLen.current; i < newLen; i++) {
         const delay = (i - prevLen.current) * 700;
-        setTimeout(() => setRevealed(r => [...r, i]), delay);
+        const timerId = setTimeout(() => {
+          revealTimersRef.current.delete(timerId);
+          if (revealGenerationRef.current !== generation) return;
+          setRevealed(current => current.includes(i) ? current : [...current, i]);
+        }, delay);
+        revealTimersRef.current.add(timerId);
       }
     }
-    if (newLen < prevLen.current) setRevealed([]);
     prevLen.current = newLen;
   }, [cards.length]);
+
+  useEffect(() => () => {
+    revealGenerationRef.current += 1;
+    revealTimersRef.current.forEach(timerId => clearTimeout(timerId));
+    revealTimersRef.current.clear();
+  }, []);
 
   return (
     <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
       {Array.from({ length: 5 }).map((_, i) => {
         const isFlipped = revealed.includes(i);
         const card = cards[i] || null;
+        if (!card) {
+          return (
+            <div
+              key={i}
+              className="game-room-community-placeholder"
+              aria-label={`第 ${i + 1} 张公共牌尚未发出`}
+            />
+          );
+        }
         return (
           <div key={i} style={{ position: 'relative', width: 50, height: 70, perspective: 300, flexShrink: 0 }}>
             <div style={{
@@ -206,10 +254,52 @@ export default function GameRoom() {
   const [raisePopups, setRaisePopups] = useState({});
   const [showTauntPicker, setShowTauntPicker] = useState(false);
   const [tauntTab, setTauntTab] = useState('emoji');
+  const [preAction, setPreAction] = useState(null);
+  const [pendingAction, setPendingAction] = useState(null);
 
   const roomRef = useRef(room);
   useEffect(() => { roomRef.current = room; }, [room]);
   const pendingSpeechRef = useRef(null);
+  const preActionRef = useRef(null);
+  const pendingActionRef = useRef(null);
+  const actionSubmitTimerRef = useRef(null);
+
+  const clearPendingAction = useCallback(() => {
+    if (actionSubmitTimerRef.current) {
+      clearTimeout(actionSubmitTimerRef.current);
+      actionSubmitTimerRef.current = null;
+    }
+    pendingActionRef.current = null;
+    setPendingAction(null);
+  }, []);
+
+  const submitPlayerAction = useCallback((targetRoomId, action, amount = 0) => {
+    if (pendingActionRef.current) return false;
+
+    preActionRef.current = null;
+    setPreAction(null);
+    pendingActionRef.current = action;
+    setPendingAction(action);
+    if (navigator.vibrate) navigator.vibrate(15);
+    setError('');
+    setShowRaise(false);
+    setRaiseError('');
+    playActionSound(action);
+    socket.emit('playerAction', { roomId: targetRoomId, action, amount });
+
+    actionSubmitTimerRef.current = setTimeout(() => {
+      if (pendingActionRef.current !== action) return;
+      pendingActionRef.current = null;
+      actionSubmitTimerRef.current = null;
+      setPendingAction(null);
+      setMessage('操作未确认，请重试');
+    }, 5000);
+    return true;
+  }, []);
+
+  useEffect(() => () => {
+    if (actionSubmitTimerRef.current) clearTimeout(actionSubmitTimerRef.current);
+  }, []);
 
   // Auto-clear floating messages after 3 s
   useEffect(() => {
@@ -298,13 +388,46 @@ export default function GameRoom() {
   }, [settlementDeadline]);
 
   useEffect(() => {
+    const clearQueuedPreAction = () => {
+      preActionRef.current = null;
+      setPreAction(null);
+    };
+
+    const runQueuedPreAction = (nextRoom) => {
+      const queued = preActionRef.current;
+      if (!queued) return;
+
+      const player = nextRoom.players.find(p => p.socketId === socket.id);
+      const isBetting = ['preflop', 'flop', 'turn', 'river'].includes(nextRoom.phase);
+      if (!player || !isBetting || player.folded || player.chips <= 0
+        || player.status === 'spectating' || nextRoom.autoRunningBoard) {
+        clearQueuedPreAction();
+        return;
+      }
+
+      const queuedToCall = Math.max(0, (nextRoom.betSize || 0) - (player.bet || 0));
+      if (queued === 'check' && queuedToCall > 0) {
+        clearQueuedPreAction();
+        setMessage('自动过牌已取消：当前需要跟注');
+        return;
+      }
+
+      const currentPlayer = nextRoom.players[nextRoom.currentTurnIndex];
+      if (currentPlayer?.socketId !== socket.id) return;
+
+      clearQueuedPreAction();
+      const action = queued === 'check-fold' && queuedToCall > 0 ? 'fold' : 'check';
+      submitPlayerAction(nextRoom.roomId, action, 0);
+    };
+
     const onUpdate = (payload) => {
       const r = payload?.room ?? payload;
       setRoom(r); setError(''); setShowRaise(false);
       const canAct = r.players.filter(p => !p.folded && p.chips > 0);
-      if (canAct.length === 0) { setTimerInfo(null); setCountdown(0); }
+      if (canAct.length === 0 || r.autoRunningBoard) { setTimerInfo(null); setCountdown(0); }
       if (payload.lastAction) {
         const { socketId, action, amount } = payload.lastAction;
+        if (socketId === socket.id) clearPendingAction();
         if (socketId !== socket.id) playActionSound(action);
         const key = Date.now();
         setActionBadges(prev => ({ ...prev, [socketId]: { action, amount, key } }));
@@ -326,9 +449,12 @@ export default function GameRoom() {
           }, 1300);
         }
       }
+      runQueuedPreAction(r);
     };
     const onStarted = (payload) => {
       const r = payload?.room ?? payload;
+      clearQueuedPreAction();
+      clearPendingAction();
       setRoom(r);
       setMessage('新一局开始！');
       setShowRaise(false);
@@ -339,15 +465,25 @@ export default function GameRoom() {
     };
     const onPlayerJoined = ({ room: r }) => setRoom(r);
     const onHandHistory = ({ history }) => setHandHistory(history || []);
-    const onShowdown = ({ room: r, results, wasMuckWin, settlementDeadline: deadline, potBreakdown, isReconnect, actionLog }) => {
+    const onShowdown = ({ room: r, results, wasMuckWin, displayCommunityCards, settlementDeadline: deadline, potBreakdown, isReconnect, actionLog }) => {
+      clearQueuedPreAction();
+      clearPendingAction();
       setRoom(r);
-      setSettlementData({ results: results || [], wasMuckWin, actionLog: actionLog || [], potBreakdown: potBreakdown || [] });
+      setSettlementData({
+        results: results || [],
+        wasMuckWin,
+        displayCommunityCards: displayCommunityCards || r.communityCards || [],
+        actionLog: actionLog || [],
+        potBreakdown: potBreakdown || [],
+      });
       setSettlementDeadline(deadline);
       setCardReveals({});
       setMessage('');
     };
     const onJoinedRoom = ({ room: r }) => {
       // Reconnect path: server will follow up with showdown event if in settlement
+      clearQueuedPreAction();
+      clearPendingAction();
       setRoom(r);
     };
     const onCardRevealed = ({ socketId, holeCards }) =>
@@ -361,12 +497,20 @@ export default function GameRoom() {
       setMessage(`${p?.nickname || '玩家'} 超时 → ${autoAction === 'fold' ? '弃牌' : '过牌'}`);
     };
     const onPlayerLeft = ({ nickname }) => setMessage(`${nickname} 离开了房间`);
-    const onActionError = ({ code }) => setError(code === 'INVALID_ACTION' ? '无效操作' : '操作失败');
+    const onActionError = ({ code }) => {
+      clearPendingAction();
+      const text = code === 'INVALID_ACTION' ? '无效操作，请重新选择' : '操作失败，请重试';
+      setError(text);
+      setMessage(text);
+    };
     const onRebuyError = ({ code }) => {
       const msgs = { CANNOT_REBUY_NOW: '游戏中无法补码', EXCEEDS_REBUY_LIMIT: '超过补码上限' };
       setRebuyError(msgs[code] || '补码失败');
     };
-    const onError = ({ code }) => setError(code);
+    const onError = ({ code }) => {
+      if (pendingActionRef.current) clearPendingAction();
+      setError(code);
+    };
 
     const onPlayerTaunt = ({ socketId, type, payload }) => {
       if (type === 'voice' && socketId !== socket.id) {
@@ -434,7 +578,7 @@ export default function GameRoom() {
       socket.off('playerTaunt', onPlayerTaunt);
       socket.off('handHistory', onHandHistory);
     };
-  }, []);
+  }, [clearPendingAction, submitPlayerAction]);
 
   if (!room) {
     return (
@@ -458,13 +602,9 @@ export default function GameRoom() {
   const actualRaise = Math.max(minRaise, Math.min(raiseAmount, maxRaise));
   const raiseCost = me ? actualRaise - me.bet : 0;
   const halfPot = Math.floor(room.pot / 2);
+  const isRaiseInputEmpty = raiseInputValue.trim() === '';
 
-  const sendAction = (action, amount = 0) => {
-    if (navigator.vibrate) navigator.vibrate(15);
-    setError(''); setShowRaise(false); setRaiseError('');
-    playActionSound(action);
-    socket.emit('playerAction', { roomId, action, amount });
-  };
+  const sendAction = (action, amount = 0) => submitPlayerAction(roomId, action, amount);
 
   const confirmRaise = () => {
     const v = Number(raiseInputValue);
@@ -501,12 +641,27 @@ export default function GameRoom() {
   const sendSpectateNextHand = () => socket.emit('playerReadyStatus', { roomId, status: 'spectating' });
   const handleRebuy = () => { setRebuyError(''); socket.emit('rebuy', { roomId, amount: room.settings.initialChips }); };
 
-  const showActionButtons = isMyTurn && me && !me.folded && me.chips > 0 && room.phase !== 'showdown' && room.phase !== 'waiting';
+  const showActionButtons = isMyTurn && me && !me.folded && me.chips > 0
+    && !room.autoRunningBoard && room.phase !== 'showdown' && room.phase !== 'waiting';
   // Manual rebuy button is hidden: busted players are auto-topped-up when the
   // next hand starts (see server's startNextHand), so no self-serve trigger is needed.
   const showRebuyButton = false;
   const hasMyCards = (me?.holeCards?.length ?? 0) > 0;
   const isSettlementPhase = room.phase === 'settlement' || !!settlementData;
+  const communityCardsToDisplay = isSettlementPhase
+    ? settlementData?.displayCommunityCards || room.communityCards
+    : room.communityCards;
+  const isBettingPhase = ['preflop', 'flop', 'turn', 'river'].includes(room.phase);
+  const canChoosePreAction = !isMyTurn && !!me && !me.folded && me.chips > 0
+    && me.status !== 'spectating' && isBettingPhase && !room.autoRunningBoard;
+  const currentPlayer = room.players[room.currentTurnIndex];
+
+  const togglePreAction = (action) => {
+    const next = preActionRef.current === action ? null : action;
+    preActionRef.current = next;
+    setPreAction(next);
+    setError('');
+  };
 
   const themeConfig = THEMES[room?.settings?.theme] || THEMES.macau;
   const tx = (key, def) => themeConfig.text[key] ?? def;
@@ -521,8 +676,8 @@ export default function GameRoom() {
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#000', display: 'flex', justifyContent: 'center' }}>
-      <div style={{ position: 'relative', width: '100%', maxWidth: 480, height: '100%', overflow: 'hidden', color: '#fff', fontFamily: 'system-ui,-apple-system,sans-serif' }}>
+    <div className="game-room-shell">
+      <div className="game-room-stage">
 
         {/* ── Background image (full screen) ── */}
         <img src={themeConfig.bg} alt="" style={{
@@ -540,18 +695,17 @@ export default function GameRoom() {
         }} />
 
         {/* ── Top bar ── */}
-        <div style={{
+        <div className="game-room-topbar" style={{
           position: 'absolute', top: 0, left: 0, right: 0, height: 44, zIndex: 30,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '0 14px',
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.72), transparent)',
         }}>
           <button onClick={() => navigate('/')} style={{ color: 'rgba(240,208,96,0.85)', fontSize: 13, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
             ← 大厅
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            <span style={{ color: '#f0d060', fontFamily: 'monospace', fontWeight: 700, letterSpacing: 3, fontSize: 14 }}>{roomId}</span>
-            <span style={{ background: 'rgba(240,208,96,0.18)', color: '#f0d060', fontSize: 11, padding: '2px 8px', borderRadius: 10 }}>
+            <span className="game-room-code">{roomId}</span>
+            <span className="game-room-phase">
               {phaseLabelMap[room.phase]}
             </span>
           </div>
@@ -568,47 +722,32 @@ export default function GameRoom() {
         {/* ── Table elements (hidden during waiting) ── */}
         {room.phase !== 'waiting' && (
           <>
-            {/* Pot */}
-            {room.pot > 0 && (
-              <div style={{
-                position: 'absolute', top: '42%', left: '50%', transform: 'translate(-50%, -50%)',
-                zIndex: 5, display: 'flex', alignItems: 'center', gap: 6,
-                background: 'rgba(0,0,0,0.68)', borderRadius: 20, padding: '5px 14px',
-                border: '1px solid rgba(212,175,55,0.45)',
-                boxShadow: '0 2px 10px rgba(0,0,0,0.6)',
+            {/* Hand hint and pot share one compact row above the community cards. */}
+            {((myHandHint && room.phase !== 'settlement') || room.pot > 0) && (
+              <div className="game-room-board-meta" style={{
+                position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)',
               }}>
-                <span style={{ width: 13, height: 13, borderRadius: '50%', background: 'linear-gradient(135deg,#f0d060,#c8950a)', display: 'inline-block', flexShrink: 0, boxShadow: '0 1px 3px rgba(0,0,0,0.5)' }} />
-                <span style={{ color: '#f0d060', fontWeight: 700, fontSize: 14 }}>{tx('pot', '底池')} {room.pot}</span>
+                {myHandHint && room.phase !== 'settlement' && (
+                  <div className="game-room-hand-hint">
+                    💡 {myHandHint}
+                  </div>
+                )}
+                {room.pot > 0 && (
+                  <div className="game-room-pot" style={{ position: 'static' }}>
+                    <span className="game-room-pot-chip" />
+                    <span className="game-room-pot-value">{tx('pot', '底池')} {room.pot}</span>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Community cards */}
-            <div style={{
-              position: 'absolute', top: '49%', left: '50%', transform: 'translate(-50%, -50%)',
+            <div className="game-room-community" style={{
+              position: 'absolute', top: '47%', left: '50%', transform: 'translate(-50%, -50%)',
               zIndex: 5,
             }}>
-              <CommunityCards cards={room.communityCards} />
+              <CommunityCards cards={communityCardsToDisplay} />
             </div>
-
-            {/* Hand hint — above community cards */}
-            {myHandHint && room.phase !== 'waiting' && room.phase !== 'settlement' && (
-              <div style={{
-                position: 'absolute', top: '37%', left: '50%',
-                transform: 'translate(-50%, -50%)',
-                zIndex: 6, pointerEvents: 'none',
-              }}>
-                <div style={{
-                  background: 'rgba(0,0,0,0.82)', borderRadius: 12,
-                  padding: '5px 18px',
-                  border: '1.5px solid rgba(212,175,55,0.6)',
-                  color: '#f0d060', fontSize: 17, fontWeight: 800,
-                  whiteSpace: 'nowrap',
-                  boxShadow: '0 2px 12px rgba(0,0,0,0.5)',
-                }}>
-                  💡 {myHandHint}
-                </div>
-              </div>
-            )}
 
             {/* Player avatars — zIndex 20 so SpeechBubbles (z:50) render above hole cards */}
             <PokerTable
@@ -629,8 +768,8 @@ export default function GameRoom() {
 
             {/* My hole cards */}
             {hasMyCards && !isSettlementPhase && (
-              <div style={{
-                position: 'absolute', bottom: 90, left: '50%', transform: 'translateX(-50%)',
+              <div className="game-room-hole-cards" style={{
+                position: 'absolute', bottom: 'var(--game-hole-bottom)', left: '50%', transform: 'translateX(-50%)',
                 zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
                 pointerEvents: 'none',
               }}>
@@ -646,7 +785,9 @@ export default function GameRoom() {
             {message && (
               <div style={{
                 position: 'absolute',
-                bottom: hasMyCards ? 180 : 96,
+                bottom: hasMyCards
+                  ? 'calc(var(--game-hole-bottom) + 92px)'
+                  : 'calc(var(--game-action-height) + 14px)',
                 left: '50%', transform: 'translateX(-50%)',
                 zIndex: 20, whiteSpace: 'nowrap',
               }}>
@@ -664,10 +805,9 @@ export default function GameRoom() {
 
         {/* ── Raise panel (above action buttons) ── */}
         {showRaise && showActionButtons && canRaise && (
-          <div style={{
-            position: 'absolute', bottom: 82, left: 0, right: 0, zIndex: 25,
+          <div className="game-room-raise-panel" style={{
+            position: 'absolute', bottom: 'var(--game-action-height)', left: 0, right: 0, zIndex: 25,
             background: 'rgba(6,10,22,0.97)', borderTop: '1px solid rgba(255,255,255,0.09)',
-            padding: '10px 14px 12px',
           }}>
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -752,12 +892,12 @@ export default function GameRoom() {
           </div>
         )}
 
-        {/* ── Action area (always at bottom, 82px) ── */}
-        <div style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0, height: 82, zIndex: 30,
+        {/* ── Action area (always pinned to the bottom) ── */}
+        <div className="game-room-action-bar" aria-busy={!!pendingAction} style={{
+          position: 'absolute', bottom: 0, left: 0, right: 0, height: 'var(--game-action-height)', zIndex: 30,
           background: 'rgba(4,7,18,0.78)',
           borderTop: '1px solid rgba(255,255,255,0.07)',
-          display: 'flex', alignItems: 'center', padding: '0 12px', gap: 10,
+          display: 'flex', alignItems: 'center', gap: 10,
         }}>
           {isSettlementPhase ? (
             <SettlementControls
@@ -774,8 +914,9 @@ export default function GameRoom() {
           ) : showActionButtons ? (
             <>
               <button
-                className={`action-btn${isXianfeng ? ' xf-fold' : ''}`}
+                className={`action-btn${isXianfeng ? ' xf-fold' : ''}${pendingAction === 'fold' ? ' is-submitting' : ''}`}
                 onClick={() => sendAction('fold')}
+                disabled={!!pendingAction}
                 style={{
                   ...actionBtn,
                   background: isXianfeng
@@ -784,14 +925,19 @@ export default function GameRoom() {
                   boxShadow: isXianfeng ? undefined : (showRaise ? '0 4px 14px rgba(127,29,29,0.3)' : '0 6px 0 #5a0f0f, 0 8px 16px rgba(127,29,29,0.5)'),
                   border: isXianfeng ? '1px solid rgba(220,60,90,0.35)' : 'none',
                   textShadow: isXianfeng ? '0 0 8px rgba(255,100,130,0.75), 0 1px 3px rgba(0,0,0,0.9)' : 'none',
-                  opacity: showRaise ? 0.35 : 1,
+                  opacity: showRaise || (pendingAction && pendingAction !== 'fold') ? 0.35 : 1,
                   pointerEvents: showRaise ? 'none' : 'auto',
                 }}
-              >{tx('fold', '弃牌')}</button>
+              >
+                {pendingAction === 'fold'
+                  ? <span className="game-room-submit-label" role="status"><span className="game-room-submit-spinner" />提交中</span>
+                  : tx('fold', '弃牌')}
+              </button>
 
               <button
-                className={`action-btn${isXianfeng ? ' xf-call' : ''}`}
+                className={`action-btn${isXianfeng ? ' xf-call' : ''}${pendingAction === 'call' || pendingAction === 'check' ? ' is-submitting' : ''}`}
                 onClick={() => canCheck ? sendAction('check') : sendAction('call')}
+                disabled={!!pendingAction}
                 style={{
                   ...actionBtn, flex: 1.3,
                   background: isXianfeng
@@ -801,20 +947,33 @@ export default function GameRoom() {
                   border: isXianfeng ? '1px solid rgba(0,210,165,0.3)' : 'none',
                   textShadow: isXianfeng ? '0 0 8px rgba(0,230,180,0.75), 0 1px 3px rgba(0,0,0,0.9)' : 'none',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
-                  opacity: showRaise ? 0.35 : 1,
+                  opacity: showRaise || (pendingAction && pendingAction !== 'call' && pendingAction !== 'check') ? 0.35 : 1,
                   pointerEvents: showRaise ? 'none' : 'auto',
                 }}
               >
-                <span>{canCheck ? tx('check', '过牌') : (me && me.chips < toCall ? tx('allinBtn', 'ALL-IN') : tx('call', '跟注'))}</span>
-                {!canCheck && <span style={{ fontSize: 12, opacity: 0.7 }}>{me && me.chips < toCall ? me.chips : toCall}</span>}
+                {pendingAction === 'call' || pendingAction === 'check' ? (
+                  <span className="game-room-submit-label" role="status"><span className="game-room-submit-spinner" />提交中</span>
+                ) : (
+                  <>
+                    <span>{canCheck ? tx('check', '过牌') : (me && me.chips < toCall ? tx('allinBtn', 'ALL-IN') : tx('call', '跟注'))}</span>
+                    {!canCheck && <span className="game-room-call-amount">{me && me.chips < toCall ? me.chips : toCall}</span>}
+                  </>
+                )}
               </button>
 
               <button
-                className={`action-btn${isXianfeng ? (showRaise ? ' xf-raise-confirm' : ' xf-raise') : ''}`}
+                className={`action-btn${isXianfeng ? (showRaise ? ' xf-raise-confirm' : ' xf-raise') : ''}${pendingAction === 'raise' ? ' is-submitting' : ''}`}
                 onClick={() => {
-                  if (showRaise) { confirmRaise(); } else { setRaise(actualRaise); setShowRaise(true); }
+                  if (showRaise) {
+                    confirmRaise();
+                  } else {
+                    setRaiseAmount(actualRaise);
+                    setRaiseInputValue('');
+                    setRaiseError('');
+                    setShowRaise(true);
+                  }
                 }}
-                disabled={!canRaise || (me?.chips ?? 0) <= toCall}
+                disabled={!!pendingAction || !canRaise || (me?.chips ?? 0) <= toCall || (showRaise && isRaiseInputEmpty)}
                 style={{
                   ...actionBtn,
                   background: isXianfeng
@@ -823,10 +982,14 @@ export default function GameRoom() {
                   boxShadow: isXianfeng ? undefined : (showRaise ? '0 6px 0 #0f1e50, 0 8px 16px rgba(37,99,235,0.7)' : '0 6px 0 #0a1a5e, 0 8px 16px rgba(30,58,138,0.45)'),
                   border: isXianfeng ? `1px solid rgba(${showRaise ? '200,130,255,0.5' : '160,80,255,0.3'})` : 'none',
                   textShadow: isXianfeng ? '0 0 8px rgba(190,120,255,0.8), 0 1px 3px rgba(0,0,0,0.9)' : 'none',
-                  opacity: (!canRaise || (me?.chips ?? 0) <= toCall) ? 0.38 : 1,
+                  opacity: pendingAction && pendingAction !== 'raise'
+                    ? 0.35
+                    : (!canRaise || (me?.chips ?? 0) <= toCall || (showRaise && isRaiseInputEmpty)) ? 0.38 : 1,
                 }}
               >
-                {showRaise ? tx('confirm', '确认') : tx('raise', '加注')}
+                {pendingAction === 'raise'
+                  ? <span className="game-room-submit-label" role="status"><span className="game-room-submit-spinner" />提交中</span>
+                  : showRaise ? tx('confirm', '确认') : tx('raise', '加注')}
               </button>
             </>
           ) : (
@@ -869,13 +1032,37 @@ export default function GameRoom() {
                 <div style={{ color: '#fbbf24', fontSize: 13, fontWeight: 600 }}>🟡 下局将参与</div>
               )}
 
+              {canChoosePreAction && (
+                <div className="game-room-pre-actions">
+                  <div className="game-room-pre-action-status">
+                    <span>等待 {currentPlayer?.nickname || '其他玩家'}</span>
+                    {timerInfo && countdown > 0 && <span>{countdown}s</span>}
+                  </div>
+                  <div className="game-room-pre-action-options">
+                    <button
+                      type="button"
+                      className={`game-room-pre-action${preAction === 'check' ? ' is-selected' : ''}`}
+                      aria-pressed={preAction === 'check'}
+                      disabled={toCall > 0}
+                      onClick={() => togglePreAction('check')}
+                    >自动过牌</button>
+                    <button
+                      type="button"
+                      className={`game-room-pre-action${preAction === 'check-fold' ? ' is-selected' : ''}`}
+                      aria-pressed={preAction === 'check-fold'}
+                      onClick={() => togglePreAction('check-fold')}
+                    >无法过牌时弃牌</button>
+                  </div>
+                </div>
+              )}
+
               {/* My chip/bet info + pot odds */}
-              {me && room.phase !== 'waiting' && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                  <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
-                    <span style={{ color: '#f0d060', fontWeight: 700 }}>{tx('chips', '筹码')} {me.chips}</span>
-                    {me.bet > 0 && <span style={{ color: '#fde68a' }}>下注 {me.bet}</span>}
-                    {toCall > 0 && <span style={{ color: '#93c5fd' }}>{tx('call', '跟注')} {toCall}</span>}
+              {me && room.phase !== 'waiting' && !canChoosePreAction && (
+                <div className="game-room-action-info">
+                  <div className="game-room-action-summary">
+                    <span className="game-room-stack-value">{tx('chips', '筹码')} {me.chips}</span>
+                    {me.bet > 0 && <span className="game-room-bet-value">下注 {me.bet}</span>}
+                    {toCall > 0 && <span className="game-room-to-call-value">{tx('call', '跟注')} {toCall}</span>}
                   </div>
                   {isMyTurn && toCall > 0 && room.pot > 0 && (
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.38)' }}>
@@ -885,9 +1072,10 @@ export default function GameRoom() {
                 </div>
               )}
               {/* Turn indicator */}
-              {room.phase !== 'showdown' && room.phase !== 'waiting' && (() => {
+              {!canChoosePreAction && room.phase !== 'showdown' && room.phase !== 'waiting' && (() => {
                 const cur = room.players[room.currentTurnIndex];
-                const allInRunout = room.players.filter(p => !p.folded && p.chips > 0).length === 0;
+                const allInRunout = room.autoRunningBoard
+                  || room.players.filter(p => !p.folded && p.chips > 0).length === 0;
                 if (allInRunout) return <span style={{ color: '#fbbf24', fontSize: 13 }}>♠ 自动开牌中...</span>;
                 if (cur) return <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>等待 {cur.nickname}{timerInfo && countdown > 0 ? ` · ${countdown}s` : ''}</span>;
                 return null;
@@ -1006,7 +1194,7 @@ export default function GameRoom() {
 
 // Shared styles
 const actionBtn = {
-  flex: 1, height: 56, borderRadius: 14, border: 'none', cursor: 'pointer',
+  flex: 1, height: 'var(--game-action-button-height)', borderRadius: 14, border: 'none', cursor: 'pointer',
   color: '#fff', fontWeight: 700, fontSize: 16,
   transition: 'opacity 0.15s, transform 0.08s, filter 0.08s',
 };
@@ -1043,10 +1231,11 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
             posStyle={{
               position: 'absolute',
               left: `${pos.x}%`, top: `${pos.y}%`,
-              transform: 'translate(-50%, -50%)',
+              transform: 'translate(-50%, -50%) scale(var(--game-player-scale))',
             }}
             isCurrentTurn={isThisPlayersTurn}
             posLabel={room.phase !== 'waiting' ? getPositionLabel(origIdx, room.dealerIndex ?? 0, n) : null}
+            blindLabel={room.phase !== 'waiting' ? getBlindLabel(origIdx, room.dealerIndex ?? 0, n) : null}
             avatarIdx={player.seatIndex % AVATARS.length}
             timerInfo={timerInfo}
             countdown={isThisPlayersTurn ? countdown : 0}
@@ -1067,7 +1256,7 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
 }
 
 // ── Avatar with timer ring ─────────────────────────────────────
-function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime, bubble, onAvatarClick, actionBadge, raisePopup, theme, settlementResult, revealedCards }) {
+function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, blindLabel, avatarIdx, timerInfo, countdown, isMyTurn, onExtendTime, bubble, onAvatarClick, actionBadge, raisePopup, theme, settlementResult, revealedCards }) {
   const CIRCUMFERENCE = 2 * Math.PI * 20;
   const duration = timerInfo?.duration || 20;
   const dashOffset = CIRCUMFERENCE * (1 - (isCurrentTurn && countdown > 0 ? countdown / duration : 0));
@@ -1076,8 +1265,9 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
   const isGrayed = player.disconnected || player.status === 'spectating';
   const isFolded = player.folded && player.status !== 'spectating';
   const isAllin = player.status === 'allin' && !isFolded;
-  const sz = isMe ? 52 : 46;
+  const sz = isMe ? 76 : 68;
   const hero = getPlayerHero(player);
+  const avatarPositionLabel = posLabel === 'SB' || posLabel === 'BB' ? null : posLabel;
 
   const [avatarScale, setAvatarScale] = useState(1);
   const prevRaiseKeyRef = useRef(null);
@@ -1100,12 +1290,27 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
   return (
     <div style={posStyle}>
       <div style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
         opacity: isGrayed ? 0.32 : 1,
         filter: isGrayed ? 'grayscale(1)' : isCurrentTurn ? 'drop-shadow(0 0 10px rgba(212,175,55,0.85))' : 'none',
       }}>
+        <div className="game-room-player-stats">
+          <span className="game-room-player-chips">{player.chips}</span>
+          {player.bet > 0 && (
+            <span className="game-room-player-bet">下注 {player.bet}</span>
+          )}
+          {isFolded && <span className="game-room-player-folded">弃牌</span>}
+          {player.status === 'spectating' && <span className="game-room-player-state">观战</span>}
+          {player.disconnected && player.status !== 'spectating' && <span className="game-room-player-state">断线</span>}
+        </div>
+
         {/* Avatar + ring */}
-        <div style={{ position: 'relative', width: sz, height: sz }}>
+        <div style={{
+          position: 'relative',
+          width: sz,
+          height: sz,
+          '--player-overlay-offset': '8px',
+        }}>
           {/* Floating popups above avatar */}
           {bubble && <SpeechBubble type={bubble.type} payload={bubble.payload} key={bubble.key} />}
           {raisePopup && <RaisePopup popup={raisePopup} theme={theme} key={raisePopup.key} />}
@@ -1153,13 +1358,17 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
             </div>
           )}
 
-          {posLabel && (
-            <span style={{
-              position: 'absolute', top: -2, right: -3,
-              fontWeight: 700, fontSize: 9, padding: '1px 4px', borderRadius: 4,
-              color: '#000', zIndex: 2,
-              background: posLabel === 'D' ? '#fff' : posLabel === 'SB' ? '#93c5fd' : posLabel === 'BB' ? '#fbbf24' : '#d1d5db',
-            }}>{posLabel}</span>
+          {(avatarPositionLabel || blindLabel) && (
+            <div className="game-room-avatar-badges">
+              {avatarPositionLabel && (
+                <span className="game-room-avatar-badge is-dealer">{avatarPositionLabel}</span>
+              )}
+              {blindLabel && (
+                <span className={`game-room-avatar-badge is-${blindLabel.toLowerCase()}`}>
+                  {blindLabel}
+                </span>
+              )}
+            </div>
           )}
           {isSettlementWinner && settlementResult && (
             <div style={{
@@ -1172,32 +1381,17 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, avatarId
           )}
         </div>
 
-        {/* Name / chip info */}
-        <div style={{ textAlign: 'center', maxWidth: isMe ? 84 : 72 }}>
-          <div style={{
-            fontSize: isMe ? 11 : 10, fontWeight: 600,
-            color: isFolded ? 'rgba(255,255,255,0.28)' : '#fff',
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            textShadow: '0 1px 4px rgba(0,0,0,0.95)',
-          }}>{player.nickname}</div>
-          {hero.title && hero.titleType && !isFolded && (
-            <div style={{
-              display: 'inline-block', fontSize: 8, fontWeight: 700,
-              background: TITLE_TYPE_STYLE[hero.titleType]?.bg || '#555',
-              color: TITLE_TYPE_STYLE[hero.titleType]?.color || '#fff',
-              borderRadius: 4, padding: '1px 5px', marginTop: 1,
-              whiteSpace: 'nowrap', textShadow: 'none',
-            }}>{hero.title}</div>
-          )}
-          <div style={{ fontSize: isMe ? 11 : 10, color: '#f0d060', fontWeight: 700, textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}>
-            {player.chips}
+        {/* Name */}
+        <div
+          className={`game-room-player-info${isMe ? ' is-me' : ''}${isCurrentTurn ? ' is-current' : ''}`}
+          style={{ maxWidth: isMe ? 132 : 120 }}
+        >
+          <div className="game-room-player-identity">
+            <div
+              className="game-room-player-name"
+              style={{ color: isFolded ? 'rgba(255,255,255,0.38)' : '#fff' }}
+            >{player.nickname}</div>
           </div>
-          {player.bet > 0 && (
-            <div style={{ fontSize: 9, color: '#fde68a', textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}>注:{player.bet}</div>
-          )}
-          {isFolded && <div style={{ fontSize: 9, color: '#f87171' }}>弃牌</div>}
-          {player.status === 'spectating' && <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.38)' }}>👁</div>}
-          {player.disconnected && player.status !== 'spectating' && <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.38)' }}>断线</div>}
         </div>
 
         {settlementResult && (
@@ -1266,7 +1460,7 @@ function ActionBadge({ badge }) {
   const label = typeof s.label === 'function' ? s.label(badge) : s.label;
   return (
     <div style={{
-      position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%',
+      position: 'absolute', bottom: 'calc(100% + var(--player-overlay-offset, 8px))', left: '50%',
       transform: 'translateX(-50%)',
       background: s.bg, borderRadius: 10, padding: '3px 8px',
       fontSize: 11, fontWeight: 800, color: s.color || '#fff',
@@ -1281,7 +1475,7 @@ function RaisePopup({ popup, theme }) {
   const isAllin = popup.action === 'allin';
   return (
     <div style={{
-      position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%',
+      position: 'absolute', bottom: 'calc(100% + var(--player-overlay-offset, 8px))', left: '50%',
       zIndex: 57, pointerEvents: 'none',
       animation: 'raise-float-up 1.3s ease forwards',
     }}>
@@ -1307,7 +1501,7 @@ function AllInBadge({ theme }) {
   const tx = (key, def) => theme?.text?.[key] ?? def;
   return (
     <div style={{
-      position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%',
+      position: 'absolute', bottom: 'calc(100% + var(--player-overlay-offset, 8px))', left: '50%',
       zIndex: 56, pointerEvents: 'none',
     }}>
       <div style={{
@@ -1784,8 +1978,65 @@ function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
   const tx = (key, def) => theme?.text?.[key] ?? def;
   const [showHeroPicker, setShowHeroPicker] = useState(false);
   const [heroTakenMsg, setHeroTakenMsg] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState('');
+  const shareFeedbackTimerRef = useRef(null);
   const me = room.players.find(p => p.socketId === mySocketId);
   const myHero = me?.heroId ? HEROES.find(h => h.id === me.heroId) : null;
+
+  const showShareFeedback = (text) => {
+    if (shareFeedbackTimerRef.current) clearTimeout(shareFeedbackTimerRef.current);
+    setShareFeedback(text);
+    shareFeedbackTimerRef.current = setTimeout(() => {
+      shareFeedbackTimerRef.current = null;
+      setShareFeedback('');
+    }, 2600);
+  };
+
+  const copyToClipboard = async (text) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    textarea.remove();
+    if (!copied) throw new Error('COPY_FAILED');
+  };
+
+  const handleCopyRoomId = async () => {
+    try {
+      await copyToClipboard(room.roomId);
+      showShareFeedback('房间号已复制');
+    } catch {
+      showShareFeedback('复制失败，请长按房间号复制');
+    }
+  };
+
+  const handleSystemShare = async () => {
+    const inviteText = `加入我的德州扑克房间，房间号：${room.roomId}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `德州扑克房间 ${room.roomId}`,
+          text: inviteText,
+          url: window.location.href,
+        });
+        showShareFeedback('邀请已分享');
+        return;
+      }
+
+      await copyToClipboard(`${inviteText}\n${window.location.href}`);
+      showShareFeedback('当前浏览器不支持系统分享，邀请链接已复制');
+    } catch (error) {
+      if (error?.name !== 'AbortError') showShareFeedback('分享失败，请稍后重试');
+    }
+  };
 
   useEffect(() => {
     const onHeroError = ({ code }) => {
@@ -1799,15 +2050,33 @@ function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
     return () => socket.off('heroError', onHeroError);
   }, []);
 
+  useEffect(() => () => {
+    if (shareFeedbackTimerRef.current) clearTimeout(shareFeedbackTimerRef.current);
+  }, []);
+
   return (
     <div style={{
       position: 'absolute', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.92)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }}>
       <div style={{ background: '#1a2f4a', borderRadius: 22, padding: 24, border: '1px solid rgba(255,255,255,0.12)', width: '100%', maxWidth: 360 }}>
-        <div style={{ textAlign: 'center', marginBottom: 16 }}>
+        <div style={{ textAlign: 'center', marginBottom: 12 }}>
           <p style={{ color: 'rgba(240,208,96,0.5)', fontSize: 13, margin: '0 0 6px' }}>分享房间号给朋友</p>
           <p style={{ color: '#f0d060', fontSize: 40, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '0.2em', margin: 0 }}>{room.roomId}</p>
+        </div>
+
+        <div className="waiting-room-share-actions">
+          <button type="button" onClick={handleCopyRoomId} className="waiting-room-share-button">
+            <span className="waiting-room-share-icon" aria-hidden="true">⧉</span>
+            复制房间号
+          </button>
+          <button type="button" onClick={handleSystemShare} className="waiting-room-share-button">
+            <span className="waiting-room-share-icon" aria-hidden="true">↗</span>
+            系统分享
+          </button>
+        </div>
+        <div className="waiting-room-share-feedback" role="status" aria-live="polite">
+          {shareFeedback}
         </div>
 
         {/* Hero selection button */}
@@ -2149,7 +2418,7 @@ function SpeechBubble({ type, payload }) {
   return (
     <div style={{
       position: 'absolute',
-      bottom: 'calc(100% + 10px)',
+      bottom: 'calc(100% + var(--player-overlay-offset, 8px))',
       left: '50%',
       zIndex: 50,
       pointerEvents: 'none',
@@ -2279,7 +2548,21 @@ function HandHistoryPanel({ history, onClose }) {
     'Full House': '葫芦', 'Flush': '同花', 'Straight': '顺子',
     'Three of a Kind': '三条', 'Two Pair': '两对', 'Pair': '一对', 'High Card': '高牌',
   };
-  const items = [...(history || [])].reverse();
+  const chronologicalItems = history || [];
+  const canDeriveLegacyProfit = Number(chronologicalItems[0]?.handNum) === 1;
+  const runningProfit = {};
+  const items = chronologicalItems.map(hand => ({
+    ...hand,
+    players: (hand.players || []).map(player => {
+      if (Number.isFinite(player.totalProfit)) {
+        runningProfit[player.nickname] = player.totalProfit;
+        return player;
+      }
+      if (!canDeriveLegacyProfit) return player;
+      runningProfit[player.nickname] = (runningProfit[player.nickname] || 0) + (Number(player.delta) || 0);
+      return { ...player, totalProfit: runningProfit[player.nickname] };
+    }),
+  })).reverse();
 
   return (
     <div style={{
@@ -2323,11 +2606,27 @@ function HandHistoryPanel({ history, onClose }) {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                   {hand.players.filter(p => p.delta !== 0 || hand.players.length <= 3).map((p, pi) => (
                     <div key={pi} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                      <span style={{ color: p.delta > 0 ? '#4ade80' : 'rgba(255,255,255,0.55)' }}>
+                      <span style={{
+                        color: p.delta > 0 ? '#4ade80' : 'rgba(255,255,255,0.55)',
+                        flex: 1,
+                        minWidth: 0,
+                        paddingRight: 8,
+                        overflowWrap: 'anywhere',
+                      }}>
                         {p.delta > 0 ? '👑 ' : ''}{p.nickname}
                         {p.handName && <span style={{ color: '#f0d060', marginLeft: 4 }}>({HAND_NAME_MAP_LOCAL[p.handName] || p.handName})</span>}
+                        {Number.isFinite(p.totalProfit) && (
+                          <span style={{
+                            color: p.totalProfit > 0 ? '#4ade80' : p.totalProfit < 0 ? '#f87171' : 'rgba(255,255,255,0.45)',
+                            marginLeft: 6,
+                            fontSize: 11,
+                            whiteSpace: 'nowrap',
+                          }}>
+                            累计 {p.totalProfit > 0 ? `+${p.totalProfit}` : p.totalProfit}
+                          </span>
+                        )}
                       </span>
-                      <span style={{ color: p.delta > 0 ? '#4ade80' : '#f87171', fontWeight: 600 }}>
+                      <span style={{ color: p.delta > 0 ? '#4ade80' : '#f87171', fontWeight: 600, flexShrink: 0 }}>
                         {p.delta > 0 ? `+${p.delta}` : p.delta}
                       </span>
                     </div>

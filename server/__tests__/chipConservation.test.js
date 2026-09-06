@@ -94,5 +94,57 @@ describe('筹码守恒 - 计时器与玩家操作竞态', () => {
     expect(roomAfterStaleTimeout.handHistory.length).toBe(handHistoryLenBefore);
     expect(roomAfterStaleTimeout.pot).toBe(potBefore);
     expect(totalChips(roomAfterStaleTimeout)).toBe(totalBefore);
+
+    const currentActor = roomAfterStaleTimeout.players[roomAfterStaleTimeout.currentTurnIndex];
+    const actorSocket = currentActor.socketId === 'sockA' ? socketA : socketB;
+    actorSocket.handlers.playerAction({ roomId, action: 'allin', amount: 0 });
+    expect(actorSocket.emit).toHaveBeenCalledWith('actionError', { code: 'HAND_NOT_ACTIVE' });
+
+    socketA.handlers.getRoomState({ roomId });
+    const roomAfterDelayedAction = getRoom();
+    expect(roomAfterDelayedAction.handHistory.length).toBe(handHistoryLenBefore);
+    expect(roomAfterDelayedAction.pot).toBe(potBefore);
+    expect(totalChips(roomAfterDelayedAction)).toBe(totalBefore);
+  });
+
+  test('上一局的计时器在下一局同名玩家行动时触发，不应改变新局状态', () => {
+    const startTimerSpy = jest.spyOn(TimerManager.prototype, 'startTimer');
+
+    const socketA = createMockSocket('next-hand-a');
+    const socketB = createMockSocket('next-hand-b');
+    const io = createMockIo({
+      'next-hand-a': socketA,
+      'next-hand-b': socketB,
+    });
+    socketHandlers(io, socketA);
+    socketHandlers(io, socketB);
+
+    socketA.handlers.createRoom({ nickname: 'A', settings: { initialChips: 150, maxRebuyAmount: 150 } });
+    const roomId = socketA.emit.mock.calls.find(c => c[0] === 'roomCreated')[1].roomId;
+    socketB.handlers.joinRoom({ roomId, nickname: 'B' });
+    socketA.handlers.startGame({ roomId });
+
+    socketA.handlers.playerAction({ roomId, action: 'call', amount: 0 });
+    const staleCall = startTimerSpy.mock.calls[startTimerSpy.mock.calls.length - 1];
+    const [staleRoomId, staleNickname, , staleOnTimeout] = staleCall;
+    expect(staleNickname).toBe('B');
+
+    socketB.handlers.playerAction({ roomId, action: 'fold', amount: 0 });
+    const showdownCount = socketA.emit.mock.calls.filter(([event]) => event === 'showdown').length;
+
+    socketA.handlers.playerReadyStatus({ roomId, status: 'ready' });
+    socketB.handlers.playerReadyStatus({ roomId, status: 'ready' });
+    const secondHand = socketA.emit.mock.calls.filter(([event]) => event === 'gameStarted').at(-1)[1].room;
+    expect(secondHand.phase).toBe('preflop');
+    expect(secondHand.players[secondHand.currentTurnIndex].nickname).toBe('B');
+
+    staleOnTimeout(staleNickname, staleRoomId);
+
+    expect(socketA.emit.mock.calls.filter(([event]) => event === 'showdown')).toHaveLength(showdownCount);
+    expect(socketA.emit.mock.calls.filter(([event]) => event === 'timedOut')).toHaveLength(0);
+    socketA.handlers.getRoomState({ roomId });
+    const currentRoom = socketA.emit.mock.calls.filter(([event]) => event === 'gameStateUpdate').at(-1)[1].room;
+    expect(currentRoom.phase).toBe('preflop');
+    expect(currentRoom.players.find(player => player.nickname === 'B').folded).toBe(false);
   });
 });

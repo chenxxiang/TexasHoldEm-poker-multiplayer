@@ -150,9 +150,9 @@ export default function HomePage() {
   const [selectedHeroId, setSelectedHeroId] = useState(() => localStorage.getItem('poker_hero') || '');
   const [showHeroPicker, setShowHeroPicker] = useState(false);
   const [roomCode, setRoomCode] = useState('');
-  const [initialChips, setInitialChips] = useState(1000);
-  const [smallBlind, setSmallBlind] = useState(10);
-  const [maxRebuy, setMaxRebuy] = useState(1000);
+  const [initialChips, setInitialChips] = useState(150);
+  const smallBlind = 1;
+  const [maxRebuy, setMaxRebuy] = useState(150);
   const [actionTime, setActionTime] = useState(20);
   const [theme, setTheme] = useState('macau');
   const [error, setError] = useState('');
@@ -197,7 +197,6 @@ export default function HomePage() {
     const nickname = selectedHero?.name || '';
     if (!nickname) { setError('请先选择一位英雄'); return; }
     if (initialChips < 100) { setError('初始筹码至少100'); return; }
-    if (smallBlind < 1) { setError('小盲注至少1'); return; }
     setError('');
     setLoading(true);
     localStorage.setItem('poker_nickname', nickname);
@@ -305,8 +304,8 @@ export default function HomePage() {
                 </div>
                 <div>
                   <label className="text-gold/50 text-xs block mb-1">小盲注</label>
-                  <input type="number" className={inputCls} value={smallBlind} min={1}
-                    onChange={e => setSmallBlind(Number(e.target.value))} />
+                  <input type="number" className={`${inputCls} cursor-not-allowed opacity-70`} value={smallBlind}
+                    readOnly disabled />
                 </div>
                 <div>
                   <label className="text-gold/50 text-xs block mb-1">最大补码</label>

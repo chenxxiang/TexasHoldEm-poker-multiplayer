@@ -4,11 +4,21 @@ const { calculateSidePots, splitPotAmount } = require('../game/pots');
 
 const roomManager = new RoomManager();
 const timerManager = new TimerManager();
+const AUTO_RUN_DELAY_MS = 500;
+const BETTING_PHASES = new Set(['preflop', 'flop', 'turn', 'river']);
 
 module.exports = (io, socket) => {
+  const onPayload = (event, handler) => {
+    socket.on(event, payload => {
+      const safePayload = payload && typeof payload === 'object' && !Array.isArray(payload)
+        ? payload
+        : {};
+      handler(safePayload);
+    });
+  };
 
   // ── 创建房间 ──────────────────────────────────────────────
-  socket.on('createRoom', ({ nickname, settings }) => {
+  onPayload('createRoom', ({ nickname, settings }) => {
     if (!nickname || !settings) { socket.emit('error', { code: 'INVALID_PARAMS' }); return; }
     const room = roomManager.createRoom(socket.id, nickname, settings);
     socket.join(room.roomId);
@@ -16,7 +26,7 @@ module.exports = (io, socket) => {
   });
 
   // ── 加入房间 ──────────────────────────────────────────────
-  socket.on('joinRoom', ({ roomId, nickname }) => {
+  onPayload('joinRoom', ({ roomId, nickname }) => {
     const result = roomManager.joinRoom(roomId, socket.id, nickname);
     if (result.error) { socket.emit('joinError', { code: result.error }); return; }
 
@@ -37,6 +47,7 @@ module.exports = (io, socket) => {
           room: sanitizeRoom(room, socket.id),
           results,
           wasMuckWin: room._settlementWasMuckWin,
+          displayCommunityCards: room._settlementCommunityCards || room.communityCards,
           settlementDeadline: room._settlementDeadline,
           potBreakdown: room._potBreakdown || [],
           isReconnect: true,
@@ -55,7 +66,7 @@ module.exports = (io, socket) => {
   });
 
   // ── 主动同步房间状态 ──────────────────────────────────────
-  socket.on('getRoomState', ({ roomId }) => {
+  onPayload('getRoomState', ({ roomId }) => {
     const room = roomManager.getRoom(roomId);
     if (!room) return;
     const player = room.players.find(p => p.socketId === socket.id);
@@ -67,6 +78,7 @@ module.exports = (io, socket) => {
         room: sanitizeRoom(room, socket.id),
         results,
         wasMuckWin: room._settlementWasMuckWin,
+        displayCommunityCards: room._settlementCommunityCards || room.communityCards,
         settlementDeadline: room._settlementDeadline,
         potBreakdown: room._potBreakdown || [],
         isReconnect: true,
@@ -78,14 +90,14 @@ module.exports = (io, socket) => {
   });
 
   // ── 获取手牌历史 ──────────────────────────────────────────
-  socket.on('getHandHistory', ({ roomId }) => {
+  onPayload('getHandHistory', ({ roomId }) => {
     const room = roomManager.getRoom(roomId);
     if (!room) return;
     socket.emit('handHistory', { history: room.handHistory || [] });
   });
 
   // ── 开始游戏（房主触发，仅第一局需要手动）────────────────
-  socket.on('startGame', ({ roomId }) => {
+  onPayload('startGame', ({ roomId }) => {
     const room = roomManager.getRoom(roomId);
     if (!room || room.hostSocketId !== socket.id) { socket.emit('error', { code: 'NOT_HOST' }); return; }
     const result = roomManager.startGame(roomId);
@@ -96,9 +108,17 @@ module.exports = (io, socket) => {
   });
 
   // ── 玩家行动 ──────────────────────────────────────────────
-  socket.on('playerAction', ({ roomId, action, amount }) => {
+  onPayload('playerAction', ({ roomId, action, amount }) => {
     const room = roomManager.getRoom(roomId);
     if (!room) return;
+    if (!BETTING_PHASES.has(room.phase) || room._settledHandId === room._handId) {
+      socket.emit('actionError', { code: 'HAND_NOT_ACTIVE' });
+      return;
+    }
+    if (room.autoRunningBoard) {
+      socket.emit('actionError', { code: 'AUTO_RUN_IN_PROGRESS' });
+      return;
+    }
 
     // Race condition guard: prevent double-processing
     if (room._processing) return;
@@ -110,8 +130,6 @@ module.exports = (io, socket) => {
       return;
     }
 
-    timerManager.clearTimer(roomId);
-
     const valid = applyAction(room, actor, action, Number(amount) || 0);
     if (!valid) {
       room._processing = false;
@@ -119,13 +137,14 @@ module.exports = (io, socket) => {
       return;
     }
 
+    timerManager.clearTimer(roomId);
     room._processing = false;
     const lastAction = { socketId: actor.socketId, action, amount: Number(amount) || 0 };
     processAfterAction(room, roomId, lastAction);
   });
 
   // ── 时间银行 ──────────────────────────────────────────────
-  socket.on('extendTime', ({ roomId }) => {
+  onPayload('extendTime', ({ roomId }) => {
     const room = roomManager.getRoom(roomId);
     if (!room) return;
     const player = room.players.find(p => p.socketId === socket.id);
@@ -137,7 +156,7 @@ module.exports = (io, socket) => {
   });
 
   // ── 补码 ──────────────────────────────────────────────────
-  socket.on('rebuy', ({ roomId, amount }) => {
+  onPayload('rebuy', ({ roomId, amount }) => {
     const room = roomManager.getRoom(roomId);
     if (!room) { socket.emit('rebuyError', { code: 'ROOM_NOT_FOUND' }); return; }
     const player = room.players.find(p => p.socketId === socket.id);
@@ -160,7 +179,7 @@ module.exports = (io, socket) => {
   });
 
   // ── 结算阶段：准备/观战 ───────────────────────────────────
-  socket.on('playerReadyStatus', ({ roomId, status }) => {
+  onPayload('playerReadyStatus', ({ roomId, status }) => {
     const room = roomManager.getRoom(roomId);
     if (!room || room.phase !== 'settlement') return;
     const player = room.players.find(p => p.socketId === socket.id);
@@ -170,7 +189,7 @@ module.exports = (io, socket) => {
     checkAllReadyAndStart(roomId);
   });
 
-  socket.on('queueForNextHand', ({ roomId }) => {
+  onPayload('queueForNextHand', ({ roomId }) => {
     const room = roomManager.getRoom(roomId);
     if (!room) return;
     const player = room.players.find(p => p.socketId === socket.id);
@@ -180,7 +199,7 @@ module.exports = (io, socket) => {
     checkAllReadyAndStart(roomId);
   });
 
-  socket.on('foldToSpectate', ({ roomId }) => {
+  onPayload('foldToSpectate', ({ roomId }) => {
     const room = roomManager.getRoom(roomId);
     if (!room) return;
     const player = room.players.find(p => p.socketId === socket.id);
@@ -190,7 +209,7 @@ module.exports = (io, socket) => {
     broadcastToEach(io, room, 'gameStateUpdate');
   });
 
-  socket.on('selectHero', ({ roomId, heroId }) => {
+  onPayload('selectHero', ({ roomId, heroId }) => {
     const room = roomManager.getRoom(roomId);
     if (!room) return;
     const player = room.players.find(p => p.socketId === socket.id);
@@ -204,7 +223,7 @@ module.exports = (io, socket) => {
   });
 
   // ── 结算阶段：自主揭示手牌 ───────────────────────────────────
-  socket.on('revealCards', ({ roomId }) => {
+  onPayload('revealCards', ({ roomId }) => {
     const room = roomManager.getRoom(roomId);
     if (!room || room.phase !== 'settlement') return;
     const player = room.players.find(p => p.socketId === socket.id);
@@ -217,7 +236,7 @@ module.exports = (io, socket) => {
   });
 
   // ── 嘲讽 / 表情气泡 ──────────────────────────────────────────
-  socket.on('playerTaunt', ({ roomId, type, payload }) => {
+  onPayload('playerTaunt', ({ roomId, type, payload }) => {
     const room = roomManager.getRoom(roomId);
     if (!room) return;
     const sender = room.players.find(p => p.socketId === socket.id);
@@ -240,11 +259,6 @@ module.exports = (io, socket) => {
     if (!player) return;
 
     player.disconnected = true;
-
-    // Only clear timer if it's NOT this player's turn.
-    // If it IS their turn, let the server-side timer continue → auto-fold when it fires.
-    const isTheirTurn = room.players[room.currentTurnIndex]?.socketId === socket.id;
-    if (!isTheirTurn) timerManager.clearTimer(roomId);
 
     if (room.players.every(p => p.disconnected)) {
       if (room._settlementTimeout) {
@@ -284,23 +298,31 @@ module.exports = (io, socket) => {
 
     const active = room.players.filter(p => !p.folded);
     if (active.length <= 1) {
-      resolveShowdown(room, io, room.roomId);
+      resolveShowdown(room, io, room.roomId, room._handId);
       return;
     }
 
-    const canAct = active.filter(p => p.chips > 0);
-    if (canAct.length === 0) room.currentTurnIndex = -1;
+    if (shouldAutoRunBoard(room)) {
+      room.currentTurnIndex = -1;
+      broadcastToEach(io, room, 'gameStateUpdate', extra);
+      autoRunBoard(roomId);
+      return;
+    }
+
     broadcastToEach(io, room, 'gameStateUpdate', extra);
-    advanceStreet(roomId);
+    advanceStreet(roomId, room._handId);
   }
 
-  function advanceStreet(roomId) {
+  function advanceStreet(roomId, handId) {
+    const room = roomManager.getRoom(roomId);
+    if (!room || room._handId !== handId || !BETTING_PHASES.has(room.phase)) return;
+
     const streetResult = roomManager.advanceToNextStreet(roomId);
     if (streetResult.error) return;
     const updatedRoom = roomManager.getRoom(roomId);
 
     if (updatedRoom.phase === 'showdown') {
-      resolveShowdown(updatedRoom, io, roomId);
+      resolveShowdown(updatedRoom, io, roomId, handId);
       return;
     }
 
@@ -314,11 +336,25 @@ module.exports = (io, socket) => {
   }
 
   function autoRunBoard(roomId) {
-    setTimeout(() => {
+    const room = roomManager.getRoom(roomId);
+    if (!room || !BETTING_PHASES.has(room.phase)) return;
+
+    const handId = room._handId;
+    const enteringAutoRun = !room.autoRunningBoard;
+    room.autoRunningBoard = true;
+    if (enteringAutoRun) {
+      timerManager.clearTimer(roomId);
+      broadcastToEach(io, room, 'gameStateUpdate');
+    }
+    if (room._autoRunTimeout) return;
+
+    room._autoRunTimeout = setTimeout(() => {
       const r = roomManager.getRoom(roomId);
-      if (!r || r.phase === 'showdown' || r.phase === 'waiting') return;
-      advanceStreet(roomId);
-    }, 1500);
+      if (!r || r._handId !== handId) return;
+      r._autoRunTimeout = null;
+      if (!r.autoRunningBoard || !BETTING_PHASES.has(r.phase)) return;
+      advanceStreet(roomId, handId);
+    }, AUTO_RUN_DELAY_MS);
   }
 
   function applyAction(room, actor, action, amount) {
@@ -434,14 +470,15 @@ module.exports = (io, socket) => {
       return;
     }
 
+    const handId = room._handId;
     timerManager.startTimer(room.roomId, actor.nickname, room.settings.actionTime || 20, (actorNickname, roomId) => {
       const r = roomManager.getRoom(roomId);
-      if (!r) return;
+      if (!r || r._handId !== handId) return;
       // Race guard: if the real action for this turn already resolved the hand
       // (e.g. moved to showdown/settlement) before this stale timeout fired,
       // the turn-order recompute can land back on a player whose nickname still
       // matches — do not re-run betting logic outside an active betting street.
-      if (!['preflop', 'flop', 'turn', 'river'].includes(r.phase)) return;
+      if (!BETTING_PHASES.has(r.phase)) return;
       const timedOutActor = r.players[r.currentTurnIndex];
       // Match by nickname to handle reconnects where socketId changed
       if (!timedOutActor || timedOutActor.nickname !== actorNickname) return;
@@ -473,15 +510,22 @@ module.exports = (io, socket) => {
     });
   }
 
-  function resolveShowdown(room, io, roomId) {
+  function resolveShowdown(room, io, roomId, handId) {
     // Idempotency guard: a hand must only ever be settled once. Without this,
     // any duplicate trigger (racing timer, replayed event) that reaches here a
     // second time would re-distribute an already-emptied pot and record a
     // phantom hand-history entry, corrupting chip totals.
-    if (room.phase === 'settlement') return;
+    if (!room || room._handId !== handId) return;
+    if (room.phase !== 'showdown' && !BETTING_PHASES.has(room.phase)) return;
+    if (room._autoRunTimeout) {
+      clearTimeout(room._autoRunTimeout);
+      room._autoRunTimeout = null;
+    }
+    room.autoRunningBoard = false;
     const active = room.players.filter(p => !p.folded);
     const winnings = {}; // nickname -> total won
     const potBreakdown = []; // [{ amount, winners: [nickname], type: 'main'|'side' }]
+    const handNames = new Map();
 
     if (active.length === 1) {
       const w = active[0];
@@ -492,6 +536,12 @@ module.exports = (io, socket) => {
         const { Hand } = require('pokersolver');
         const community = room.communityCards.map(c => c.code);
         const sidePots = calculateSidePots(room.players);
+        const solvedHands = new Map(active.map(p => [
+          p,
+          Hand.solve([...p.holeCards.map(c => c.code), ...community]),
+        ]));
+
+        active.forEach(p => handNames.set(p, solvedHands.get(p).name));
 
         sidePots.forEach((pot, idx) => {
           if (pot.eligible.length === 0) return;
@@ -503,10 +553,11 @@ module.exports = (io, socket) => {
           }
           const solved = pot.eligible.map(p => ({
             player: p,
-            hand: Hand.solve([...p.holeCards.map(c => c.code), ...community]),
+            hand: solvedHands.get(p),
           }));
           const winningHands = Hand.winners(solved.map(s => s.hand));
           const potWinners = solved.filter(s => winningHands.includes(s.hand)).map(s => s.player);
+          if (potWinners.length === 0) throw new Error(`No winner for pot ${idx}`);
           const shares = splitPotAmount(pot.amount, potWinners.length);
           potWinners.forEach((w, i) => {
             winnings[w.nickname] = (winnings[w.nickname] || 0) + shares[i];
@@ -517,12 +568,24 @@ module.exports = (io, socket) => {
             type: idx === 0 ? 'main' : 'side',
           });
         });
+
+        const distributedTotal = Object.values(winnings).reduce((sum, amount) => sum + amount, 0);
+        if (distributedTotal !== room.pot) {
+          throw new Error(`Pot mismatch: expected ${room.pot}, calculated ${distributedTotal}`);
+        }
       } catch (e) {
-        const w = active[0];
-        winnings[w.nickname] = room.pot;
-        potBreakdown.push({ amount: room.pot, winners: [w.nickname], type: 'main' });
+        console.error(`[settlement] failed for room ${roomId}, hand ${handId}:`, e);
+        broadcastToEach(io, room, 'gameStateUpdate');
+        room.players.forEach(p => {
+          io.to(p.socketId).emit('error', { code: 'SETTLEMENT_FAILED' });
+        });
+        return;
       }
     }
+
+    // Claim only after all fallible hand evaluation has completed. A failed
+    // evaluation remains eligible for a later retry of the same hand.
+    if (!roomManager.claimSettlement(roomId, handId)) return;
 
     room.players.forEach(p => {
       p.won = winnings[p.nickname] || 0;
@@ -539,32 +602,44 @@ module.exports = (io, socket) => {
       p.readyStatus = (p.status === 'spectating' || p.disconnected) ? 'spectating' : 'pending';
     });
 
-    const { Hand } = require('pokersolver');
-    const community = room.communityCards.map(c => c.code);
     const baseResults = room.players.map(p => {
-      let handName = null;
-      if (!p.folded && active.length > 1) {
-        try {
-          handName = Hand.solve([...p.holeCards.map(c => c.code), ...community]).name;
-        } catch (e) { /* ignore */ }
-      }
       return {
         socketId: p.socketId,
         nickname: p.nickname,
         delta: p.won - (p.totalBet || 0),
-        handName,
+        handName: handNames.get(p) || null,
       };
     });
 
     const wasMuckWin = active.length === 1;
+    room._settlementCommunityCards = wasMuckWin && room.communityCards.length < 5
+      ? [...room.communityCards, ...room.deck.slice(0, 5 - room.communityCards.length)]
+      : [...room.communityCards];
     const settlementDeadline = Date.now() + 30000;
 
     // Save hand to history
+    const lastHandNum = Number(room.handHistory?.[room.handHistory.length - 1]?.handNum);
+    const nextHandNum = Number.isFinite(lastHandNum)
+      ? lastHandNum + 1
+      : (room.handHistory?.length || 0) + 1;
     const handRecord = {
-      handNum: (room.handHistory?.length || 0) + 1,
+      handNum: nextHandNum,
       communityCards: [...room.communityCards],
       potBreakdown,
-      players: baseResults.map(r => ({ nickname: r.nickname, delta: r.delta, handName: r.handName })),
+      players: baseResults.map(r => {
+        const player = room.players.find(p => p.nickname === r.nickname);
+        const totalProfit = player
+          ? player.chips
+            - room.settings.initialChips
+            - (player.rebuyCount || 0) * room.settings.initialChips
+          : null;
+        return {
+          nickname: r.nickname,
+          delta: r.delta,
+          handName: r.handName,
+          totalProfit,
+        };
+      }),
       wasMuckWin,
       timestamp: Date.now(),
     };
@@ -584,6 +659,7 @@ module.exports = (io, socket) => {
         room: sanitizeRoom(room, player.socketId),
         results: playerResults,
         wasMuckWin,
+        displayCommunityCards: room._settlementCommunityCards,
         settlementDeadline,
         potBreakdown,
         isReconnect: false,
@@ -619,13 +695,17 @@ module.exports = (io, socket) => {
     delete publicRoom.deck;
     delete publicRoom._settlementTimeout;
     delete publicRoom._cleanupTimeout;
+    delete publicRoom._autoRunTimeout;
     delete publicRoom._startingNextHand;
     delete publicRoom._settlementBaseResults;
     delete publicRoom._settlementWasMuckWin;
+    delete publicRoom._settlementCommunityCards;
     delete publicRoom._settlementDeadline;
     delete publicRoom._actionLog;
     delete publicRoom._potBreakdown;
     delete publicRoom._processing;
+    delete publicRoom._handId;
+    delete publicRoom._settledHandId;
 
     return {
       ...publicRoom,
@@ -707,10 +787,12 @@ module.exports = (io, socket) => {
     room.phase = 'waiting';
     room._settlementBaseResults = null;
     room._settlementWasMuckWin = null;
+    room._settlementCommunityCards = null;
     room._settlementDeadline = null;
     room.actionLog = [];
     room._actionLog = null;
     room._potBreakdown = null;
+    room.autoRunningBoard = false;
 
     const result = roomManager.startGame(roomId);
     room._startingNextHand = false;

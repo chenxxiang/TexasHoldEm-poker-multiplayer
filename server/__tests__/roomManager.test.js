@@ -4,13 +4,31 @@ describe('RoomManager', () => {
   let rm;
   beforeEach(() => { rm = new RoomManager(); });
 
+  test('测试环境不读取或写入正式房间数据', () => {
+    expect(rm.persistenceEnabled).toBe(false);
+    expect(rm.rooms.size).toBe(0);
+
+    const writeSpy = jest.spyOn(require('fs'), 'writeFileSync');
+    rm.saveToDisk();
+    expect(writeSpy).not.toHaveBeenCalled();
+    writeSpy.mockRestore();
+  });
+
   test('createRoom 返回 6 位大写房间码', () => {
     const room = rm.createRoom('socket1', '小明', {
       initialChips: 1000, smallBlind: 10, maxRebuyAmount: 500,
     });
     expect(room.roomId).toMatch(/^[A-Z0-9]{6}$/);
     expect(room.settings.initialChips).toBe(1000);
-    expect(room.settings.smallBlind).toBe(10);
+    expect(room.settings.smallBlind).toBe(1);
+  });
+
+  test('createRoom 使用默认筹码设置并固定小盲注为 1', () => {
+    const room = rm.createRoom('socket1', '小明', {});
+    expect(room.settings.initialChips).toBe(150);
+    expect(room.settings.smallBlind).toBe(1);
+    expect(room.settings.maxRebuyAmount).toBe(150);
+    expect(room.players[0].chips).toBe(150);
   });
 
   test('joinRoom 成功加入', () => {
@@ -68,9 +86,22 @@ describe('RoomManager', () => {
     rm.joinRoom(roomId, 's2', '好友');
     rm.startGame(roomId);
     const room = rm.getRoom(roomId);
-    expect(room.players[0].chips).toBe(990);  // SB 扣 10
-    expect(room.players[1].chips).toBe(980);  // BB 扣 20
-    expect(room.pot).toBe(30);               // SB(10) + BB(20) = 30
+    expect(room.players[0].chips).toBe(999);  // SB 扣 1
+    expect(room.players[1].chips).toBe(998);  // BB 扣 2
+    expect(room.pot).toBe(3);                // SB(1) + BB(2) = 3
+  });
+
+  test('大盲短码 All-in 时仍以完整大盲作为当前最高注', () => {
+    const { roomId } = rm.createRoom('s1', '房主', { initialChips: 1, smallBlind: 1, maxRebuyAmount: 100 });
+    rm.joinRoom(roomId, 's2', '好友');
+    rm.rebuy(roomId, 's1', 99);
+    rm.startGame(roomId);
+
+    const room = rm.getRoom(roomId);
+    expect(room.players[0]).toEqual(expect.objectContaining({ bet: 1, chips: 99, status: 'active' }));
+    expect(room.players[1]).toEqual(expect.objectContaining({ bet: 1, chips: 0, status: 'allin' }));
+    expect(room.pot).toBe(2);
+    expect(room.betSize).toBe(2);
   });
 
   test('startGame 给每个玩家发 2 张手牌', () => {
@@ -95,6 +126,27 @@ describe('RoomManager', () => {
     const { roomId } = rm.createRoom('s1', '房主', { initialChips: 1000, smallBlind: 10, maxRebuyAmount: 500 });
     const result = rm.startGame(roomId);
     expect(result.error).toBe('NOT_ENOUGH_PLAYERS');
+  });
+
+  test('claimSettlement 按牌局编号保证结算幂等，不依赖 phase', () => {
+    const { roomId } = rm.createRoom('s1', '房主', { initialChips: 1000, smallBlind: 10, maxRebuyAmount: 500 });
+    rm.joinRoom(roomId, 's2', '好友');
+    rm.startGame(roomId);
+
+    const room = rm.getRoom(roomId);
+    const firstHandId = room._handId;
+    expect(rm.claimSettlement(roomId, firstHandId)).toBe(true);
+
+    room.phase = 'settlement';
+    room.phase = 'showdown';
+    expect(rm.claimSettlement(roomId, firstHandId)).toBe(false);
+
+    room.phase = 'waiting';
+    expect(rm.startGame(roomId).success).toBe(true);
+    expect(room._handId).toBe(firstHandId + 1);
+    expect(room._settledHandId).toBe(firstHandId);
+    expect(rm.claimSettlement(roomId, room._handId)).toBe(true);
+    expect(rm.claimSettlement(roomId, room._handId)).toBe(false);
   });
 
   test('leaveRoom 房主离开时转让给下一个玩家', () => {
