@@ -110,6 +110,7 @@ function getPlayerHero(player) {
 }
 
 // Fixed six-seat layout: me at the bottom, then opponents around the table.
+const SHOW_TIME_BANK_BUTTON = false;
 const SIX_PLAYER_SEATS = [
   { x: 50, y: 74 }, // me
   { x: 20, y: 34 }, // upper left
@@ -1230,7 +1231,7 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
             isMe={isMe}
             posStyle={{
               position: 'absolute',
-              left: `${pos.x}%`, top: isMe ? `calc(${pos.y}% - 18px)` : `${pos.y}%`,
+              left: `${pos.x}%`, top: isMe ? `calc(${pos.y}% - 24px)` : `${pos.y}%`,
               transform: 'translate(-50%, -50%) scale(var(--game-player-scale))',
             }}
             isCurrentTurn={isThisPlayersTurn}
@@ -1335,7 +1336,7 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, blindLab
               border: `2.5px solid ${isCurrentTurn ? '#f0d060' : isMe ? '#3b82f6' : 'rgba(255,255,255,0.22)'}`,
               transform: `scale(${effectiveScale})`,
               transition: avatarScale > 1 ? 'transform 0.16s cubic-bezier(0.34,1.56,0.64,1)' : 'transform 0.2s ease',
-              opacity: isFolded ? 0.38 : 1,
+              opacity: isFolded ? 0.38 : isMe ? 0.8 : 1,
               cursor: onAvatarClick ? 'pointer' : 'default',
               boxShadow: onAvatarClick ? '0 0 0 2px rgba(240,208,96,0.35)' : 'none',
             }}
@@ -1431,7 +1432,7 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, blindLab
           </div>
         )}
 
-        {isMe && isMyTurn && isCurrentTurn && timerInfo?.hasTimeBank && countdown > 0 && (
+        {SHOW_TIME_BANK_BUTTON && isMe && isMyTurn && isCurrentTurn && timerInfo?.hasTimeBank && countdown > 0 && (
           <button onClick={onExtendTime} style={{
             fontSize: 10, color: '#f0d060', border: '1px solid rgba(240,208,96,0.4)',
             background: 'rgba(0,0,0,0.55)', borderRadius: 6, padding: '2px 7px', cursor: 'pointer',
@@ -2366,7 +2367,7 @@ function WinnerPopup({ settlementData }) {
     if (key === prevKeyRef.current) return;
     prevKeyRef.current = key;
     setVisible(true);
-    const t = setTimeout(() => setVisible(false), 3600);
+    const t = setTimeout(() => setVisible(false), 1500);
     return () => clearTimeout(t);
   }, [settlementData]);
 
@@ -2375,12 +2376,14 @@ function WinnerPopup({ settlementData }) {
   if (winners.length === 0) return null;
 
   return (
-    <div style={{
-      position: 'absolute', inset: 0, zIndex: 55,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      pointerEvents: 'none',
-      background: 'rgba(0,0,0,0.28)',
-    }}>
+    <div
+      onClick={() => setVisible(false)}
+      style={{
+        position: 'absolute', inset: 0, zIndex: 55,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        cursor: 'pointer',
+        background: 'rgba(0,0,0,0.28)',
+      }}>
       <div style={{
         background: 'rgba(4,8,20,0.96)',
         border: '2px solid rgba(240,208,96,0.6)',

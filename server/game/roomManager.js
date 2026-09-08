@@ -15,7 +15,7 @@ class RoomManager {
   }
 
   _generateRoomId() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const chars = '0123456789';
     let id = '';
     for (let i = 0; i < 6; i++) id += chars[Math.floor(Math.random() * chars.length)];
     return this.rooms.has(id) ? this._generateRoomId() : id;

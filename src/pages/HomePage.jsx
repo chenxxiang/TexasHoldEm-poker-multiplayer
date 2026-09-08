@@ -280,7 +280,7 @@ export default function HomePage() {
             <>
               <input
                 className={`${inputCls} uppercase tracking-widest font-mono`}
-                placeholder="房间号 (如: ABC123)"
+                placeholder="房间号 (如: 123456)"
                 value={roomCode}
                 onChange={e => setRoomCode(e.target.value.toUpperCase())}
                 maxLength={6}

@@ -14,11 +14,11 @@ describe('RoomManager', () => {
     writeSpy.mockRestore();
   });
 
-  test('createRoom 返回 6 位大写房间码', () => {
+  test('createRoom 返回 6 位纯数字房间码', () => {
     const room = rm.createRoom('socket1', '小明', {
       initialChips: 1000, smallBlind: 10, maxRebuyAmount: 500,
     });
-    expect(room.roomId).toMatch(/^[A-Z0-9]{6}$/);
+    expect(room.roomId).toMatch(/^\d{6}$/);
     expect(room.settings.initialChips).toBe(1000);
     expect(room.settings.smallBlind).toBe(1);
   });
