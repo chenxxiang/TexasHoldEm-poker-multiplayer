@@ -62,9 +62,10 @@ body {
 .game-room-board-meta {
   z-index: 6;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 5px;
   max-width: calc(100% - 20px);
   pointer-events: none;
 }
@@ -493,6 +494,13 @@ body {
 .game-room-hole-cards {
   transform-origin: center center;
   scale: var(--game-card-scale);
+}
+
+.game-room-hole-cards-inner {
+  display: flex;
+  gap: 8px;
+  transform: scale(1.18);
+  transform-origin: center center;
 }
 
 .game-room-raise-panel {

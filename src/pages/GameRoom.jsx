@@ -722,20 +722,20 @@ export default function GameRoom() {
         {/* ── Table elements (hidden during waiting) ── */}
         {room.phase !== 'waiting' && (
           <>
-            {/* Hand hint and pot share one compact row above the community cards. */}
+            {/* Pot and hand hint use separate rows above the community cards. */}
             {((myHandHint && room.phase !== 'settlement') || room.pot > 0) && (
               <div className="game-room-board-meta" style={{
-                position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)',
+                position: 'absolute', top: 'calc(47% - 84px)', left: '50%', transform: 'translate(-50%, -50%)',
               }}>
-                {myHandHint && room.phase !== 'settlement' && (
-                  <div className="game-room-hand-hint">
-                    💡 {myHandHint}
-                  </div>
-                )}
                 {room.pot > 0 && (
                   <div className="game-room-pot" style={{ position: 'static' }}>
                     <span className="game-room-pot-chip" />
                     <span className="game-room-pot-value">{tx('pot', '底池')} {room.pot}</span>
+                  </div>
+                )}
+                {myHandHint && room.phase !== 'settlement' && (
+                  <div className="game-room-hand-hint">
+                    💡 {myHandHint}
                   </div>
                 )}
               </div>
@@ -773,7 +773,7 @@ export default function GameRoom() {
                 zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
                 pointerEvents: 'none',
               }}>
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div className="game-room-hole-cards-inner">
                   {me.holeCards.map((card, i) => (
                     <Card key={i} card={card} size="md" />
                   ))}
@@ -1230,7 +1230,7 @@ function PokerTable({ room, mySocketId, timerInfo, countdown, isMyTurn, onExtend
             isMe={isMe}
             posStyle={{
               position: 'absolute',
-              left: `${pos.x}%`, top: `${pos.y}%`,
+              left: `${pos.x}%`, top: isMe ? `calc(${pos.y}% - 18px)` : `${pos.y}%`,
               transform: 'translate(-50%, -50%) scale(var(--game-player-scale))',
             }}
             isCurrentTurn={isThisPlayersTurn}
@@ -1265,7 +1265,7 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, blindLab
   const isGrayed = player.disconnected || player.status === 'spectating';
   const isFolded = player.folded && player.status !== 'spectating';
   const isAllin = player.status === 'allin' && !isFolded;
-  const sz = isMe ? 76 : 68;
+  const sz = isMe ? 62 : 58;
   const hero = getPlayerHero(player);
   const avatarPositionLabel = posLabel === 'SB' || posLabel === 'BB' ? null : posLabel;
 
