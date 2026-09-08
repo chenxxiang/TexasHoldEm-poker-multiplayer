@@ -1318,6 +1318,14 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, blindLab
           {isAllin && !actionBadge && !bubble && !raisePopup && <AllInBadge theme={theme} />}
 
           <div
+            className="game-room-avatar-name"
+            title={player.nickname}
+            style={{ color: isFolded ? 'rgba(255,255,255,0.38)' : '#fff' }}
+          >
+            {player.nickname}
+          </div>
+
+          <div
             onClick={onAvatarClick}
             style={{
               width: sz, height: sz, borderRadius: '50%', overflow: 'hidden',
@@ -1381,18 +1389,7 @@ function AvatarTimer({ player, isMe, posStyle, isCurrentTurn, posLabel, blindLab
           )}
         </div>
 
-        {/* Name */}
-        <div
-          className={`game-room-player-info${isMe ? ' is-me' : ''}${isCurrentTurn ? ' is-current' : ''}`}
-          style={{ maxWidth: isMe ? 132 : 120 }}
-        >
-          <div className="game-room-player-identity">
-            <div
-              className="game-room-player-name"
-              style={{ color: isFolded ? 'rgba(255,255,255,0.38)' : '#fff' }}
-            >{player.nickname}</div>
-          </div>
-        </div>
+        <div className="game-room-player-name-spacer" aria-hidden="true" />
 
         {settlementResult && (
           <div style={{

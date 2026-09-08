@@ -114,39 +114,33 @@ body {
   text-shadow: 0 1px 4px #000;
 }
 
-.game-room-player-info {
+.game-room-avatar-name {
+  position: absolute;
+  top: -5px;
+  left: -9px;
+  z-index: 4;
   box-sizing: border-box;
-  min-width: 0;
-  padding: 2px 6px 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  text-align: center;
-}
-
-.game-room-player-info.is-current {
-  background: transparent;
-}
-
-.game-room-player-name {
-  min-width: 0;
+  max-width: calc(100% - 8px);
   overflow: hidden;
+  padding: 2px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.62);
   color: #fff;
   font-size: 10px;
-  font-weight: 750;
-  line-height: 1.2;
+  font-weight: 800;
+  line-height: 1.1;
+  pointer-events: none;
+  text-align: center;
   text-overflow: ellipsis;
-  text-shadow: 0 1px 3px #000;
+  text-shadow: 0 1px 2px #000;
   white-space: nowrap;
 }
 
-.game-room-player-identity {
-  display: flex;
-  width: 100%;
-  min-height: 12px;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
+.game-room-player-name-spacer {
+  width: 1px;
+  height: 14px;
+  flex-shrink: 0;
 }
 
 .game-room-player-position {
@@ -204,10 +198,6 @@ body {
   background: #fbbf24;
 }
 
-.game-room-player-info.is-me .game-room-player-name {
-  font-size: 11px;
-}
-
 .game-room-player-title {
   display: inline-block;
   max-width: 100%;
@@ -248,9 +238,10 @@ body {
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.5);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 800;
   line-height: 1.2;
+  transform: translateY(-6px);
   white-space: nowrap;
 }
 
