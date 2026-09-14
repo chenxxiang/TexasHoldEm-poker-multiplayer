@@ -109,20 +109,20 @@ function getPlayerHero(player) {
   return HEROES[player.seatIndex % HEROES.length];
 }
 
-// Fixed six-seat layout: me at the bottom, then opponents around the table.
+// Fixed layouts keep player order moving clockwise from my bottom seat.
 const SHOW_TIME_BANK_BUTTON = false;
-const SIX_PLAYER_SEATS = [
-  { x: 50, y: 74 }, // me
-  { x: 20, y: 34 }, // upper left
-  { x: 50, y: 18 }, // top center
-  { x: 80, y: 34 }, // upper right
-  { x: 20, y: 62 }, // lower left
-  { x: 80, y: 62 }, // lower right
-];
+const FIXED_SEAT_LAYOUTS = {
+  1: [{ x: 50, y: 74 }],
+  2: [{ x: 50, y: 74 }, { x: 50, y: 18 }],
+  3: [{ x: 50, y: 74 }, { x: 20, y: 34 }, { x: 80, y: 34 }],
+  4: [{ x: 50, y: 74 }, { x: 20, y: 34 }, { x: 50, y: 18 }, { x: 80, y: 34 }],
+  5: [{ x: 50, y: 74 }, { x: 20, y: 62 }, { x: 20, y: 34 }, { x: 50, y: 18 }, { x: 80, y: 34 }],
+  6: [{ x: 50, y: 74 }, { x: 20, y: 62 }, { x: 20, y: 34 }, { x: 50, y: 18 }, { x: 80, y: 34 }, { x: 80, y: 62 }],
+};
 
 function getSeatPositions(n) {
   const cx = 50, cy = 46, rx = 34, ry = 28;
-  if (n <= SIX_PLAYER_SEATS.length) return SIX_PLAYER_SEATS.slice(0, n);
+  if (FIXED_SEAT_LAYOUTS[n]) return FIXED_SEAT_LAYOUTS[n];
 
   return Array.from({ length: n }, (_, i) => {
     const angle = Math.PI / 2 + (2 * Math.PI * i / n);

@@ -43,6 +43,16 @@ describe('deck', () => {
     expect(remainingDeck).toHaveLength(52 - 6);
   });
 
+  test('dealHands 每轮按玩家顺序各发 1 张牌', () => {
+    const deck = createDeck();
+    const { hands, remainingDeck } = dealHands(deck, ['p1', 'p2', 'p3']);
+
+    expect(hands['p1']).toEqual([deck[0], deck[3]]);
+    expect(hands['p2']).toEqual([deck[1], deck[4]]);
+    expect(hands['p3']).toEqual([deck[2], deck[5]]);
+    expect(remainingDeck[0]).toEqual(deck[6]);
+  });
+
   test('dealHands 发出的牌不重复', () => {
     const deck = createDeck();
     const { hands } = dealHands(deck, ['p1', 'p2']);

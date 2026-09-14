@@ -1,4 +1,5 @@
 const RoomManager = require('../game/roomManager');
+const { createDeck, shuffle } = require('../game/deck');
 
 describe('RoomManager', () => {
   let rm;
@@ -112,6 +113,22 @@ describe('RoomManager', () => {
     room.players.forEach(p => {
       expect(p.holeCards).toHaveLength(2);
     });
+  });
+
+  test('startGame 从庄家左侧开始按轮次发牌', () => {
+    const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.5);
+    const expectedDeck = shuffle(createDeck());
+    const { roomId } = rm.createRoom('s1', '庄家', { initialChips: 1000 });
+    rm.joinRoom(roomId, 's2', '小盲');
+    rm.joinRoom(roomId, 's3', '大盲');
+
+    rm.startGame(roomId);
+
+    const room = rm.getRoom(roomId);
+    expect(room.players[1].holeCards).toEqual([expectedDeck[0], expectedDeck[3]]);
+    expect(room.players[2].holeCards).toEqual([expectedDeck[1], expectedDeck[4]]);
+    expect(room.players[0].holeCards).toEqual([expectedDeck[2], expectedDeck[5]]);
+    randomSpy.mockRestore();
   });
 
   test('startGame 在游戏进行中返回 GAME_ALREADY_STARTED', () => {

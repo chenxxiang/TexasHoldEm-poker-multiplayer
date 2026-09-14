@@ -265,7 +265,13 @@ class RoomManager {
       : this._nextPlayingIndex(room, bbIdx);
 
     const deck = shuffle(createDeck());
-    const { hands, remainingDeck } = dealHands(deck, playingPlayers.map(p => p.socketId));
+    const dealOrder = [];
+    let dealIdx = dealerIdx;
+    for (let i = 0; i < playingPlayers.length; i++) {
+      dealIdx = this._nextPlayingIndex(room, dealIdx);
+      dealOrder.push(room.players[dealIdx].socketId);
+    }
+    const { hands, remainingDeck } = dealHands(deck, dealOrder);
 
     room.players.forEach(p => {
       if (p.status === 'spectating') {

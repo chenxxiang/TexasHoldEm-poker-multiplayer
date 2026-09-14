@@ -23,9 +23,11 @@ function shuffle(deck) {
 
 function dealHands(deck, playerIds) {
   const remaining = [...deck];
-  const hands = {};
-  for (const id of playerIds) {
-    hands[id] = [remaining.shift(), remaining.shift()];
+  const hands = Object.fromEntries(playerIds.map(id => [id, []]));
+  for (let round = 0; round < 2; round++) {
+    for (const id of playerIds) {
+      hands[id].push(remaining.shift());
+    }
   }
   return { hands, remainingDeck: remaining };
 }
