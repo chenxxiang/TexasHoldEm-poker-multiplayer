@@ -177,9 +177,10 @@ class RoomManager {
     // Reconnect: same nickname already in room
     const existing = room.players.find(p => p.nickname === nickname);
     if (existing) {
+      const wasHost = room.hostSocketId === existing.socketId;
       existing.socketId = socketId;
       existing.disconnected = false;
-      if (!room.hostSocketId) room.hostSocketId = socketId;
+      if (wasHost || !room.hostSocketId) room.hostSocketId = socketId;
       return { success: true, reconnected: true, room };
     }
 

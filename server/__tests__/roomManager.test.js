@@ -175,6 +175,17 @@ describe('RoomManager', () => {
     expect(rm.getRoom(roomId).hostSocketId).toBe('s2');
   });
 
+  test('房主重连后 hostSocketId 更新为新连接', () => {
+    const { roomId } = rm.createRoom('host-old', '房主', { initialChips: 1000 });
+    rm.joinRoom(roomId, 's2', '好友');
+
+    const result = rm.joinRoom(roomId, 'host-new', '房主');
+
+    expect(result.reconnected).toBe(true);
+    expect(rm.getRoom(roomId).hostSocketId).toBe('host-new');
+    expect(rm.getRoom(roomId).players[0].socketId).toBe('host-new');
+  });
+
   describe('mid-game join', () => {
     test('allows joining as spectator when game is in progress', () => {
       const manager = new RoomManager();

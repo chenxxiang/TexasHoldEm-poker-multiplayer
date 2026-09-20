@@ -67,4 +67,38 @@ describe('玩家断线时的计时器处理', () => {
     expect(timeoutEvent).toBeDefined();
     expect(timeoutEvent.payload).toEqual({ socketId: host.id, autoAction: 'fold' });
   });
+
+  test('房主断线重连后仍可开始游戏', () => {
+    const host = createMockSocket('host-before-reconnect');
+    const reconnectedHost = createMockSocket('host-after-reconnect');
+    const guest = createMockSocket('guest-for-host-reconnect');
+    const roomEvents = [];
+    const socketsById = {
+      [host.id]: host,
+      [reconnectedHost.id]: reconnectedHost,
+      [guest.id]: guest,
+    };
+    const io = createMockIo(socketsById, roomEvents);
+
+    socketHandlers(io, host);
+    socketHandlers(io, reconnectedHost);
+    socketHandlers(io, guest);
+
+    host.handlers.createRoom({
+      nickname: 'Host Reconnect',
+      settings: { initialChips: 150, smallBlind: 1, maxRebuyAmount: 150, actionTime: 5 },
+    });
+    const roomId = getLastEventPayload(host, 'roomCreated').roomId;
+    guest.handlers.joinRoom({ roomId, nickname: 'Guest Reconnect' });
+    host.handlers.disconnect();
+
+    reconnectedHost.handlers.joinRoom({ roomId, nickname: 'Host Reconnect' });
+    const reconnectedRoom = getLastEventPayload(reconnectedHost, 'joinedRoom').room;
+    expect(reconnectedRoom.hostSocketId).toBe(reconnectedHost.id);
+
+    reconnectedHost.handlers.startGame({ roomId });
+
+    expect(getLastEventPayload(reconnectedHost, 'gameStarted')).toBeDefined();
+    expect(reconnectedHost.emit).not.toHaveBeenCalledWith('error', { code: 'NOT_HOST' });
+  });
 });

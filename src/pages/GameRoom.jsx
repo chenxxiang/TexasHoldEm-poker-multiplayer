@@ -2053,11 +2053,8 @@ function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
   }, []);
 
   return (
-    <div style={{
-      position: 'absolute', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.92)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-    }}>
-      <div style={{ background: '#1a2f4a', borderRadius: 22, padding: 24, border: '1px solid rgba(255,255,255,0.12)', width: '100%', maxWidth: 360 }}>
+    <div className="waiting-room-overlay">
+      <div className="waiting-room-panel">
         <div style={{ textAlign: 'center', marginBottom: 12 }}>
           <p style={{ color: 'rgba(240,208,96,0.5)', fontSize: 13, margin: '0 0 6px' }}>分享房间号给朋友</p>
           <p style={{ color: '#f0d060', fontSize: 40, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '0.2em', margin: 0 }}>{room.roomId}</p>
