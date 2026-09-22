@@ -10,8 +10,9 @@
 
 export const DECKS = [
   { id: 'legacy', name: '旧版', renderer: 'css' },
-  // 经典: awaiting a re-generated sheet — the first one came out with 12 columns and no 10s.
-  { id: 'classic', name: '经典', renderer: 'sprite', dir: '/cards/classic', unavailable: true },
+  // 经典 came back from the generator a rank short; scripts/repair-classic-sheet.js rebuilds
+  // the missing tens out of the misplaced indices before the sheet is cut.
+  { id: 'classic', name: '经典', renderer: 'sprite', dir: '/cards/classic' },
   { id: 'gufeng', name: '古风', renderer: 'sprite', dir: '/cards/gufeng' },
   { id: 'cyber', name: '赛博朋克', renderer: 'sprite', dir: '/cards/cyber' },
 ];
