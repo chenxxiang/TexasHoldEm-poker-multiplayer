@@ -24,19 +24,33 @@ const fs = require('fs');
 const path = require('path');
 
 const argv = process.argv.slice(2);
-const flagAt = argv.indexOf('--crop-top');
-const CROP_TOP = flagAt >= 0 ? parseFloat(argv[flagAt + 1]) : 0;
-const valueAt = flagAt >= 0 ? flagAt + 1 : -1;
-const positional = argv.filter((a, i) => !a.startsWith('--') && i !== valueAt);
-const [SRC_FACE, SRC_BACK] = positional;
+const flag = (name, fallback) => {
+  const i = argv.indexOf(name);
+  return i >= 0 ? parseFloat(argv[i + 1]) : fallback;
+};
+const CROP_TOP = flag('--crop-top', 0);
+// A card's body is fully opaque. Anything softer than this is backdrop — a glow, a drop
+// shadow, an antialiased fringe — and must not count as artwork, or a sheet whose cards sit
+// on a translucent halo reads as one solid blob and no grid can be found in it.
+const OPAQUE = flag('--alpha', 200);
+const valueIdx = new Set();
+for (const name of ['--crop-top', '--alpha']) {
+  const i = argv.indexOf(name);
+  if (i >= 0) valueIdx.add(i + 1);
+}
+const positional = argv.filter((a, i) => !a.startsWith('--') && !valueIdx.has(i));
+const [SRC_FACE, SRC_BACK, DECK_ID] = positional;
 
-if (!SRC_FACE || !SRC_BACK || !(CROP_TOP >= 0 && CROP_TOP < 0.5)) {
-  console.error('usage: node scripts/build-card-sheet.js <face-sheet.png> <card-back.png> [--crop-top 0.14]');
+if (!SRC_FACE || !SRC_BACK || !DECK_ID || !/^[a-z][a-z0-9-]*$/.test(DECK_ID)
+    || !(CROP_TOP >= 0 && CROP_TOP < 0.5) || !(OPAQUE >= 0 && OPAQUE < 255)) {
+  console.error('usage: node scripts/build-card-sheet.js <face-sheet.png> <card-back.png> <deck-id> [--alpha 200] [--crop-top 0]');
+  console.error('  <deck-id>   skin id from src/data/decks.js; output lands in public/cards/<deck-id>/');
+  console.error('  --alpha     alpha above which a pixel counts as card body (0-254, default 200)');
   console.error('  --crop-top  fraction of height to discard off the top of both inputs (0 - 0.5),');
-  console.error('              for the blank band reserved for a generator watermark');
+  console.error('              for a blank band reserved for a generator watermark');
   process.exit(1);
 }
-const OUT = path.join(__dirname, '..', 'public', 'cards');
+const OUT = path.join(__dirname, '..', 'public', 'cards', DECK_ID);
 
 const VALUES = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
 const SUITS = ['s', 'h', 'd', 'c'];
@@ -77,13 +91,13 @@ async function tightBoxes(buf) {
   // so the short bands drop out here.
   const rowOcc = new Array(H).fill(0);
   for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) if (alpha(x, y) > 16) rowOcc[y]++;
+    for (let x = 0; x < W; x++) if (alpha(x, y) > OPAQUE) rowOcc[y]++;
   }
   const allRows = runs(rowOcc, W);
   const rows = allRows.filter(([y0, y1]) => {
     let min = Infinity, max = -1;
     for (let y = y0; y <= y1; y++) {
-      for (let x = 0; x < W; x++) if (alpha(x, y) > 16) { if (x < min) min = x; if (x > max) max = x; }
+      for (let x = 0; x < W; x++) if (alpha(x, y) > OPAQUE) { if (x < min) min = x; if (x > max) max = x; }
     }
     return max >= 0 && (max - min + 1) / W >= 0.6;
   });
@@ -102,13 +116,13 @@ async function tightBoxes(buf) {
   const colOcc = new Array(W).fill(0);
   for (let y = 0; y < H; y++) {
     if (!inRow[y]) continue;
-    for (let x = 0; x < W; x++) if (alpha(x, y) > 16) colOcc[x]++;
+    for (let x = 0; x < W; x++) if (alpha(x, y) > OPAQUE) colOcc[x]++;
   }
   const allCols = runs(colOcc, bandHeight);
   const cols = allCols.filter(([x0, x1]) => {
     let min = Infinity, max = -1;
     for (let x = x0; x <= x1; x++) {
-      for (let y = 0; y < H; y++) if (inRow[y] && alpha(x, y) > 16) { if (y < min) min = y; if (y > max) max = y; }
+      for (let y = 0; y < H; y++) if (inRow[y] && alpha(x, y) > OPAQUE) { if (y < min) min = y; if (y > max) max = y; }
     }
     return max >= 0 && (max - min + 1) / bandHeight >= 0.6;
   });
@@ -134,7 +148,7 @@ async function tightBoxes(buf) {
       let minX = Infinity, maxX = -1, minY = Infinity, maxY = -1;
       for (let y = y0; y <= y1; y++) {
         for (let x = x0; x <= x1; x++) {
-          if (alpha(x, y) > 40) {
+          if (alpha(x, y) > OPAQUE) {
             if (x < minX) minX = x;
             if (x > maxX) maxX = x;
             if (y < minY) minY = y;
@@ -189,6 +203,8 @@ async function tightBoxes(buf) {
 
   const kb = (f) => (fs.statSync(path.join(OUT, f)).size / 1024).toFixed(0) + ' KB';
   if (CROP_TOP) console.log(`cropped top ${(CROP_TOP * 100).toFixed(0)}% off both inputs`);
-  console.log(`deck-sheet.webp ${sheetW}x${sheetH} (cell ${CELL_W}x${CELL_H})  ${kb('deck-sheet.webp')}`);
-  console.log(`card-back.webp  ${CELL_W * 2}x${CELL_H * 2}  ${kb('card-back.webp')}`);
+  const src = await sharp(faceBuf).metadata();
+  console.log(`[${DECK_ID}] source ${src.width}x${src.height} -> per-card ${Math.round(src.width / VALUES.length)}px wide`);
+  console.log(`[${DECK_ID}] deck-sheet.webp ${sheetW}x${sheetH} (cell ${CELL_W}x${CELL_H})  ${kb('deck-sheet.webp')}`);
+  console.log(`[${DECK_ID}] card-back.webp  ${CELL_W * 2}x${CELL_H * 2}  ${kb('card-back.webp')}`);
 })();

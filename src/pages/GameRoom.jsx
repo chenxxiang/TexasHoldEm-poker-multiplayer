@@ -5,6 +5,8 @@ import Card from '../components/Card';
 import { playActionSound } from '../helpers/sounds';
 import { Hand } from 'pokersolver';
 import { TITLE_TYPE_STYLE, HERO_SEASONS, HEROES } from '../data/heroes';
+import { useAppearance } from '../context/AppearanceContext';
+import AppearancePanel from '../components/AppearancePanel';
 
 // ── Speech synthesis: pre-load voices for mobile (Huawei/Android) ──
 let _cachedVoice = null;
@@ -72,34 +74,6 @@ const PHASE_LABELS = {
   waiting: '等待中', preflop: '翻牌前', flop: '翻牌', turn: '转牌', river: '河牌', showdown: '摊牌',
 };
 const AVATARS = ['🐯','🦁','🐻','🐼','🐨','🦊','🐺','🐸','🐮','🐷'];
-
-const THEMES = {
-  macau: {
-    id: 'macau',
-    name: '澳门风云',
-    bg: '/bg2.png',
-    bgStyle: { objectPosition: 'center bottom' },
-    text: {},
-  },
-  xianfeng: {
-    id: 'xianfeng',
-    name: '仙风道骨',
-    bg: '/天宫.jpg',
-    bgStyle: { top: '-18%', height: '118%' },
-    text: {
-      fold: '认负', call: '接招', check: '静观', raise: '出招', confirm: '出手',
-      allinBtn: '孤注一掷',
-      allinBadge: '✦ 孤注一掷 ✦',
-      allinPopup: '💥 孤注一掷！',
-      pot: '彩头', chips: '内力',
-      waitingPhase: '仙门未开', preflopPhase: '开局', flopPhase: '展战',
-      turnPhase: '变局', riverPhase: '终局', showdownPhase: '各显神通',
-      startGame: '开坛论剑', readyNext: '再战一局', spectateNext: '旁观修炼',
-      settlement: '胜负已分', heroPickerTitle: '选择你的侠士', heroNoun: '侠士',
-      scoreboard: '武林排行', waitingForHost: '等待掌门发令...',
-    },
-  },
-};
 
 function getPlayerHero(player) {
   if (player.heroId) {
@@ -243,6 +217,8 @@ export default function GameRoom() {
   const [raiseError, setRaiseError] = useState('');
   const [showRaise, setShowRaise] = useState(false);
   const [showScoreboard, setShowScoreboard] = useState(false);
+  const [showAppearance, setShowAppearance] = useState(false);
+  const appearance = useAppearance();
   const [showHistory, setShowHistory] = useState(false);
   const [handHistory, setHandHistory] = useState([]);
   const [rebuyError, setRebuyError] = useState('');
@@ -664,16 +640,16 @@ export default function GameRoom() {
     setError('');
   };
 
-  const themeConfig = THEMES[room?.settings?.theme] || THEMES.macau;
-  const tx = (key, def) => themeConfig.text[key] ?? def;
-  const isXianfeng = themeConfig.id === 'xianfeng';
+  // the background is this player's own choice, not the room's — see AppearanceContext
+  const themeConfig = appearance.background;
+  const glowButtons = themeConfig.buttons === 'glow';
   const phaseLabelMap = {
-    waiting: tx('waitingPhase', '等待中'),
-    preflop: tx('preflopPhase', '翻牌前'),
-    flop: tx('flopPhase', '翻牌'),
-    turn: tx('turnPhase', '转牌'),
-    river: tx('riverPhase', '河牌'),
-    showdown: tx('showdownPhase', '摊牌'),
+    waiting: '等待中',
+    preflop: '翻牌前',
+    flop: '翻牌',
+    turn: '转牌',
+    river: '河牌',
+    showdown: '摊牌',
   };
 
   return (
@@ -681,12 +657,12 @@ export default function GameRoom() {
       <div className="game-room-stage">
 
         {/* ── Background image (full screen) ── */}
-        <img src={themeConfig.bg} alt="" style={{
+        <img src={themeConfig.img} alt="" style={{
           position: 'absolute', top: 0, left: 0,
           width: '100%', height: '100%',
           objectFit: 'cover', objectPosition: 'top center',
           zIndex: 0,
-          ...themeConfig.bgStyle,
+          ...themeConfig.style,
         }} />
         {/* Dark gradient at bottom so action buttons remain readable */}
         <div style={{
@@ -717,6 +693,9 @@ export default function GameRoom() {
             <button onClick={() => setShowScoreboard(s => !s)} style={{ color: 'rgba(240,208,96,0.8)', fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
               📊
             </button>
+            <button onClick={() => setShowAppearance(true)} title="外观" style={{ color: 'rgba(240,208,96,0.8)', fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+              ⚙️
+            </button>
           </div>
         </div>
 
@@ -731,7 +710,7 @@ export default function GameRoom() {
                 {room.pot > 0 && (
                   <div className="game-room-pot" style={{ position: 'static' }}>
                     <span className="game-room-pot-chip" />
-                    <span className="game-room-pot-value">{tx('pot', '底池')} {room.pot}</span>
+                    <span className="game-room-pot-value">{'底池'} {room.pot}</span>
                   </div>
                 )}
                 {myHandHint && room.phase !== 'settlement' && (
@@ -915,38 +894,38 @@ export default function GameRoom() {
           ) : showActionButtons ? (
             <>
               <button
-                className={`action-btn${isXianfeng ? ' xf-fold' : ''}${pendingAction === 'fold' ? ' is-submitting' : ''}`}
+                className={`action-btn${glowButtons ? ' xf-fold' : ''}${pendingAction === 'fold' ? ' is-submitting' : ''}`}
                 onClick={() => sendAction('fold')}
                 disabled={!!pendingAction}
                 style={{
                   ...actionBtn,
-                  background: isXianfeng
+                  background: glowButtons
                     ? 'linear-gradient(135deg,#4a0814,#7a1532)'
                     : 'linear-gradient(135deg,#7f1d1d,#991b1b)',
-                  boxShadow: isXianfeng ? undefined : (showRaise ? '0 4px 14px rgba(127,29,29,0.3)' : '0 6px 0 #5a0f0f, 0 8px 16px rgba(127,29,29,0.5)'),
-                  border: isXianfeng ? '1px solid rgba(220,60,90,0.35)' : 'none',
-                  textShadow: isXianfeng ? '0 0 8px rgba(255,100,130,0.75), 0 1px 3px rgba(0,0,0,0.9)' : 'none',
+                  boxShadow: glowButtons ? undefined : (showRaise ? '0 4px 14px rgba(127,29,29,0.3)' : '0 6px 0 #5a0f0f, 0 8px 16px rgba(127,29,29,0.5)'),
+                  border: glowButtons ? '1px solid rgba(220,60,90,0.35)' : 'none',
+                  textShadow: glowButtons ? '0 0 8px rgba(255,100,130,0.75), 0 1px 3px rgba(0,0,0,0.9)' : 'none',
                   opacity: showRaise || (pendingAction && pendingAction !== 'fold') ? 0.35 : 1,
                   pointerEvents: showRaise ? 'none' : 'auto',
                 }}
               >
                 {pendingAction === 'fold'
                   ? <span className="game-room-submit-label" role="status"><span className="game-room-submit-spinner" />提交中</span>
-                  : tx('fold', '弃牌')}
+                  : '弃牌'}
               </button>
 
               <button
-                className={`action-btn${isXianfeng ? ' xf-call' : ''}${pendingAction === 'call' || pendingAction === 'check' ? ' is-submitting' : ''}`}
+                className={`action-btn${glowButtons ? ' xf-call' : ''}${pendingAction === 'call' || pendingAction === 'check' ? ' is-submitting' : ''}`}
                 onClick={() => canCheck ? sendAction('check') : sendAction('call')}
                 disabled={!!pendingAction}
                 style={{
                   ...actionBtn, flex: 1.3,
-                  background: isXianfeng
+                  background: glowButtons
                     ? 'linear-gradient(135deg,#003028,#005248)'
                     : 'linear-gradient(135deg,#14532d,#166534)',
-                  boxShadow: isXianfeng ? undefined : (showRaise ? '0 4px 14px rgba(20,83,45,0.3)' : '0 6px 0 #0a3018, 0 8px 16px rgba(20,83,45,0.5)'),
-                  border: isXianfeng ? '1px solid rgba(0,210,165,0.3)' : 'none',
-                  textShadow: isXianfeng ? '0 0 8px rgba(0,230,180,0.75), 0 1px 3px rgba(0,0,0,0.9)' : 'none',
+                  boxShadow: glowButtons ? undefined : (showRaise ? '0 4px 14px rgba(20,83,45,0.3)' : '0 6px 0 #0a3018, 0 8px 16px rgba(20,83,45,0.5)'),
+                  border: glowButtons ? '1px solid rgba(0,210,165,0.3)' : 'none',
+                  textShadow: glowButtons ? '0 0 8px rgba(0,230,180,0.75), 0 1px 3px rgba(0,0,0,0.9)' : 'none',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
                   opacity: showRaise || (pendingAction && pendingAction !== 'call' && pendingAction !== 'check') ? 0.35 : 1,
                   pointerEvents: showRaise ? 'none' : 'auto',
@@ -956,14 +935,14 @@ export default function GameRoom() {
                   <span className="game-room-submit-label" role="status"><span className="game-room-submit-spinner" />提交中</span>
                 ) : (
                   <>
-                    <span>{canCheck ? tx('check', '过牌') : (me && me.chips < toCall ? tx('allinBtn', 'ALL-IN') : tx('call', '跟注'))}</span>
+                    <span>{canCheck ? '过牌' : (me && me.chips < toCall ? 'ALL-IN' : '跟注')}</span>
                     {!canCheck && <span className="game-room-call-amount">{me && me.chips < toCall ? me.chips : toCall}</span>}
                   </>
                 )}
               </button>
 
               <button
-                className={`action-btn${isXianfeng ? (showRaise ? ' xf-raise-confirm' : ' xf-raise') : ''}${pendingAction === 'raise' ? ' is-submitting' : ''}`}
+                className={`action-btn${glowButtons ? (showRaise ? ' xf-raise-confirm' : ' xf-raise') : ''}${pendingAction === 'raise' ? ' is-submitting' : ''}`}
                 onClick={() => {
                   if (showRaise) {
                     confirmRaise();
@@ -977,12 +956,12 @@ export default function GameRoom() {
                 disabled={!!pendingAction || !canRaise || (me?.chips ?? 0) <= toCall || (showRaise && isRaiseInputEmpty)}
                 style={{
                   ...actionBtn,
-                  background: isXianfeng
+                  background: glowButtons
                     ? (showRaise ? 'linear-gradient(135deg,#3500a0,#6000d0)' : 'linear-gradient(135deg,#1e0052,#3a0098)')
                     : (showRaise ? 'linear-gradient(135deg,#1e40af,#2563eb)' : 'linear-gradient(135deg,#1e3a8a,#1e40af)'),
-                  boxShadow: isXianfeng ? undefined : (showRaise ? '0 6px 0 #0f1e50, 0 8px 16px rgba(37,99,235,0.7)' : '0 6px 0 #0a1a5e, 0 8px 16px rgba(30,58,138,0.45)'),
-                  border: isXianfeng ? `1px solid rgba(${showRaise ? '200,130,255,0.5' : '160,80,255,0.3'})` : 'none',
-                  textShadow: isXianfeng ? '0 0 8px rgba(190,120,255,0.8), 0 1px 3px rgba(0,0,0,0.9)' : 'none',
+                  boxShadow: glowButtons ? undefined : (showRaise ? '0 6px 0 #0f1e50, 0 8px 16px rgba(37,99,235,0.7)' : '0 6px 0 #0a1a5e, 0 8px 16px rgba(30,58,138,0.45)'),
+                  border: glowButtons ? `1px solid rgba(${showRaise ? '200,130,255,0.5' : '160,80,255,0.3'})` : 'none',
+                  textShadow: glowButtons ? '0 0 8px rgba(190,120,255,0.8), 0 1px 3px rgba(0,0,0,0.9)' : 'none',
                   opacity: pendingAction && pendingAction !== 'raise'
                     ? 0.35
                     : (!canRaise || (me?.chips ?? 0) <= toCall || (showRaise && isRaiseInputEmpty)) ? 0.38 : 1,
@@ -990,7 +969,7 @@ export default function GameRoom() {
               >
                 {pendingAction === 'raise'
                   ? <span className="game-room-submit-label" role="status"><span className="game-room-submit-spinner" />提交中</span>
-                  : showRaise ? tx('confirm', '确认') : tx('raise', '加注')}
+                  : showRaise ? '确认' : '加注'}
               </button>
             </>
           ) : (
@@ -1061,9 +1040,9 @@ export default function GameRoom() {
               {me && room.phase !== 'waiting' && !canChoosePreAction && (
                 <div className="game-room-action-info">
                   <div className="game-room-action-summary">
-                    <span className="game-room-stack-value">{tx('chips', '筹码')} {me.chips}</span>
+                    <span className="game-room-stack-value">{'筹码'} {me.chips}</span>
                     {me.bet > 0 && <span className="game-room-bet-value">下注 {me.bet}</span>}
-                    {toCall > 0 && <span className="game-room-to-call-value">{tx('call', '跟注')} {toCall}</span>}
+                    {toCall > 0 && <span className="game-room-to-call-value">{'跟注'} {toCall}</span>}
                   </div>
                   {isMyTurn && toCall > 0 && room.pot > 0 && (
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.38)' }}>
@@ -1186,6 +1165,16 @@ export default function GameRoom() {
 
         {showHistory && (
           <HandHistoryPanel history={handHistory} onClose={() => setShowHistory(false)} />
+        )}
+
+        {showAppearance && (
+          <AppearancePanel
+            players={room.players}
+            mySocketId={mySocketId}
+            myHeroId={me?.heroId}
+            onSelectHero={(heroId) => socket.emit('selectHero', { roomId, heroId })}
+            onClose={() => setShowAppearance(false)}
+          />
         )}
 
       </div>
@@ -1469,7 +1458,6 @@ function ActionBadge({ badge }) {
 }
 
 function RaisePopup({ popup, theme }) {
-  const tx = (key, def) => theme?.text?.[key] ?? def;
   const isAllin = popup.action === 'allin';
   return (
     <div style={{
@@ -1489,14 +1477,13 @@ function RaisePopup({ popup, theme }) {
         transform: 'translateX(-50%)',
         display: 'block',
       }}>
-        {isAllin ? tx('allinPopup', '💥 ALL-IN!') : `+${popup.amount}`}
+        {isAllin ? '💥 ALL-IN!' : `+${popup.amount}`}
       </div>
     </div>
   );
 }
 
 function AllInBadge({ theme }) {
-  const tx = (key, def) => theme?.text?.[key] ?? def;
   return (
     <div style={{
       position: 'absolute', bottom: 'calc(100% + var(--player-overlay-offset, 8px))', left: '50%',
@@ -1516,14 +1503,13 @@ function AllInBadge({ theme }) {
         transform: 'translateX(-50%)',
         display: 'block',
         animation: 'allin-wobble 0.65s ease-in-out infinite',
-      }}>{tx('allinBadge', '✦ ALL-IN ✦')}</div>
+      }}>{'✦ ALL-IN ✦'}</div>
     </div>
   );
 }
 
 // ── Scoreboard overlay ─────────────────────────────────────────
 function Scoreboard({ room, mySocketId, onClose, theme }) {
-  const tx = (key, def) => theme?.text?.[key] ?? def;
   const sorted = [...room.players].sort((a, b) => b.chips - a.chips);
   return (
     <div style={{
@@ -1536,7 +1522,7 @@ function Scoreboard({ room, mySocketId, onClose, theme }) {
         maxHeight: '80vh', overflow: 'auto',
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <h3 style={{ color: '#f0d060', fontWeight: 700, fontSize: 18, margin: 0 }}>📊 {tx('scoreboard', '记分牌')}</h3>
+          <h3 style={{ color: '#f0d060', fontWeight: 700, fontSize: 18, margin: 0 }}>📊 {'记分牌'}</h3>
           <button onClick={onClose} style={{ color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
@@ -1744,7 +1730,6 @@ function SettlementScreen({
   cardReveals, onRevealCards, onReady, onSpectate, onJoinNextHand,
   theme, phaseLabelMap,
 }) {
-  const tx = (key, def) => theme?.text?.[key] ?? def;
   const phaseLabel = (phase) => phaseLabelMap?.[phase] || PHASE_LABELS[phase];
   const { results = [], actionLog = [], potBreakdown = [] } = settlementData || {};
   const me = room?.players?.find(p => p.socketId === mySocketId);
@@ -1770,7 +1755,7 @@ function SettlementScreen({
 
         {/* Title + live countdown */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 style={{ color: '#f0d060', fontWeight: 700, fontSize: 19, margin: 0 }}>🃏 {tx('settlement', '本局结算')}</h2>
+          <h2 style={{ color: '#f0d060', fontWeight: 700, fontSize: 19, margin: 0 }}>🃏 {'本局结算'}</h2>
           {settlementCountdown > 0 && (
             <span style={{ color: 'rgba(255,255,255,0.38)', fontSize: 13 }}>⏱ {settlementCountdown}s</span>
           )}
@@ -1973,7 +1958,6 @@ function SettlementScreen({
 
 // ── Waiting room overlay ───────────────────────────────────────
 function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
-  const tx = (key, def) => theme?.text?.[key] ?? def;
   const [showHeroPicker, setShowHeroPicker] = useState(false);
   const [heroTakenMsg, setHeroTakenMsg] = useState(false);
   const [shareFeedback, setShareFeedback] = useState('');
@@ -2096,9 +2080,9 @@ function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
           {myHero ? (
             <>
               <img src={myHero.img} style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' }} alt="" />
-              {myHero.name} · 更换{tx('heroNoun', '英雄')}
+              {myHero.name} · 更换{'英雄'}
             </>
-          ) : `🦸 ${heroTakenMsg ? '英雄已被占用，重新选择' : tx('heroPickerTitle', '选择你的英雄')}`}
+          ) : `🦸 ${heroTakenMsg ? '英雄已被占用，重新选择' : '选择你的英雄'}`}
         </button>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
@@ -2155,11 +2139,11 @@ function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
               opacity: room.players.length < 2 ? 0.55 : 1,
             }}
           >
-            {room.players.length < 2 ? `等待更多玩家 (${room.players.length}/2)` : tx('startGame', '开始游戏')}
+            {room.players.length < 2 ? `等待更多玩家 (${room.players.length}/2)` : '开始游戏'}
           </button>
         ) : (
           <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.38)', fontSize: 14, padding: '10px 0' }}>
-            {tx('waitingForHost', '等待房主开始游戏...')}
+            {'等待房主开始游戏...'}
           </div>
         )}
       </div>
@@ -2183,7 +2167,6 @@ function WaitingRoom({ room, isHost, mySocketId, roomId, theme }) {
 
 // ── 英雄选择器 ────────────────────────────────────────────────
 function HeroPicker({ players, mySocketId, myHeroId, onSelect, onClose, theme }) {
-  const tx = (key, def) => theme?.text?.[key] ?? def;
   const claimedByOthers = new Set(
     players.filter(p => p.heroId && p.socketId !== mySocketId).map(p => p.heroId)
   );
@@ -2206,7 +2189,7 @@ function HeroPicker({ players, mySocketId, myHeroId, onSelect, onClose, theme })
           padding: '16px 20px 12px', flexShrink: 0,
           borderBottom: '1px solid rgba(255,255,255,0.07)',
         }}>
-          <h3 style={{ color: '#f0d060', fontWeight: 700, fontSize: 18, margin: 0 }}>🦸 {tx('heroPickerTitle', '选择你的英雄')}</h3>
+          <h3 style={{ color: '#f0d060', fontWeight: 700, fontSize: 18, margin: 0 }}>🦸 {'选择你的英雄'}</h3>
           <button onClick={onClose} style={{ color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none', fontSize: 24, cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
         </div>
 

@@ -127,7 +127,6 @@ class RoomManager {
         smallBlind: FIXED_SMALL_BLIND,
         maxRebuyAmount,
         actionTime: settings.actionTime || 20,
-        theme: settings.theme || 'macau',
       },
       players: [{
         socketId,
