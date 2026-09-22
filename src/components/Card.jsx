@@ -1,70 +1,54 @@
-const SUIT_SYMBOLS = { s: '♠', h: '♥', d: '♦', c: '♣' };
+// Card faces come from a single 13x4 sprite sheet in public/cards/. Columns follow VALUES and
+// rows follow SUITS — the same order server/game/deck.js builds the deck in — and every cell
+// holds one card edge-to-edge, so a background-position offset of one cell lands on one card.
+const VALUES = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
+const SUITS  = ['s', 'h', 'd', 'c'];
+
+const SHEET = '/cards/deck-sheet.webp';
+const BACK  = '/cards/card-back.webp';
 
 const SIZES = {
-  xs: { w: 24,  h: 34,  cornerFs: 9,  centerFs: 14 },
-  sm: { w: 34,  h: 48,  cornerFs: 12, centerFs: 20 },
-  md: { w: 50,  h: 70,  cornerFs: 15, centerFs: 28 },
-  my: { w: 54,  h: 76,  cornerFs: 16, centerFs: 32 },
-  lg: { w: 62,  h: 88,  cornerFs: 18, centerFs: 38 },
+  xs: { w: 24, h: 34 },
+  sm: { w: 34, h: 48 },
+  md: { w: 50, h: 70 },
+  my: { w: 54, h: 76 },
+  lg: { w: 62, h: 88 },
 };
 
-export default function Card({ card, size = 'md' }) {
-  const { w, h, cornerFs, centerFs } = SIZES[size] || SIZES.md;
+const SHADOW = '0 4px 14px rgba(0,0,0,0.45), 0 2px 4px rgba(0,0,0,0.25)';
 
-  if (!card || card === 'hidden') {
+export default function Card({ card, size = 'md' }) {
+  const { w, h } = SIZES[size] || SIZES.md;
+  // the artwork carries its own gold frame; the radius only clips the sprite's square corners
+  const radius = Math.max(3, Math.round(w * 0.09));
+
+  const code = typeof card === 'string' ? card : card?.code;
+  const col = code ? VALUES.indexOf(code.slice(0, -1)) : -1;
+  const row = code ? SUITS.indexOf(code.slice(-1)) : -1;
+
+  // face down, or anything we can't place on the sheet
+  if (col < 0 || row < 0) {
     return (
       <div style={{
         width: w, height: h, flexShrink: 0,
-        background: 'linear-gradient(135deg,#162b5e 0%,#1e3d8a 50%,#162b5e 100%)',
-        border: '1.5px solid #3a6ac1', borderRadius: 6,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        boxShadow: '0 3px 10px rgba(0,0,0,0.5)',
-      }}>
-        <div style={{
-          width: w - 10, height: h - 10,
-          border: '1px solid rgba(74,122,193,0.45)', borderRadius: 3,
-          background: 'repeating-linear-gradient(45deg,rgba(45,90,158,0.3) 0px,rgba(45,90,158,0.3) 2px,transparent 2px,transparent 7px)',
-        }} />
-      </div>
+        backgroundImage: `url(${BACK})`,
+        backgroundSize: '100% 100%',
+        borderRadius: radius,
+        boxShadow: SHADOW,
+        userSelect: 'none',
+      }} />
     );
   }
-
-  const suit      = card.code.slice(-1);
-  const rawValue  = card.value === 'T' ? '10' : card.value;
-  const symbol    = SUIT_SYMBOLS[suit] || '?';
-  const isRed     = suit === 'h' || suit === 'd';
-  const color     = isRed ? '#c0392b' : '#1a1a1a';
 
   return (
     <div style={{
       width: w, height: h, flexShrink: 0,
-      background: 'linear-gradient(160deg,#ffffff 60%,#f4f4f4 100%)',
-      border: '1px solid #ddd', borderRadius: 6,
-      boxShadow: '0 4px 14px rgba(0,0,0,0.45), 0 2px 4px rgba(0,0,0,0.25), inset 0 0 0 1px rgba(0,0,0,0.06)',
-      position: 'relative', color,
-      display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-      padding: '3px 4px', userSelect: 'none', overflow: 'hidden',
-    }}>
-      {/* Paper texture */}
-      <div style={{
-        position: 'absolute', inset: 0, pointerEvents: 'none',
-        background: 'repeating-linear-gradient(135deg,transparent,transparent 4px,rgba(0,0,0,0.012) 4px,rgba(0,0,0,0.012) 5px)',
-      }} />
-
-      {/* Top-left corner — value only */}
-      <div style={{ fontSize: cornerFs, fontWeight: 800, lineHeight: 1.1, zIndex: 1 }}>
-        {rawValue}
-      </div>
-
-      {/* Center suit — larger */}
-      <div style={{ fontSize: centerFs, fontWeight: 700, textAlign: 'center', lineHeight: 1, zIndex: 1 }}>
-        {symbol}
-      </div>
-
-      {/* Bottom-right corner — value only, rotated */}
-      <div style={{ fontSize: cornerFs, fontWeight: 800, lineHeight: 1.1, transform: 'rotate(180deg)', alignSelf: 'flex-end', zIndex: 1 }}>
-        {rawValue}
-      </div>
-    </div>
+      backgroundImage: `url(${SHEET})`,
+      backgroundSize: `${w * VALUES.length}px ${h * SUITS.length}px`,
+      backgroundPosition: `${-col * w}px ${-row * h}px`,
+      borderRadius: radius,
+      boxShadow: SHADOW,
+      userSelect: 'none',
+    }} />
   );
 }
