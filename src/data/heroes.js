@@ -27,6 +27,8 @@ export const HERO_SEASONS = [
       { id: '牢丁',  name: '牢丁',  img: '/heroes/牢丁.png' },
       { id: '？？',  name: '？？',  img: '/heroes/？？.png' },
       { id: '？？？', name: '？？？', img: '/heroes/？？？.png' },
+      { id: '陈许之', name: '陈许之', img: '/heroes/陈许之.jpg' },
+      { id: '陈骁恒', name: '陈骁恒', img: '/heroes/陈骁恒.jpg' },
     ],
   },
 ];
